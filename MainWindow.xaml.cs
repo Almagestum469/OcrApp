@@ -77,7 +77,7 @@ namespace OcrApp
             }
         }
 
-        private async void RecognizeButton_Click(object sender, RoutedEventArgs e)
+        private async void RecognizeButton_Click(object sender, RoutedEventArgs e) // Add async keyword
         {
             if (_captureItem == null || _ocrEngine == null)
             {
@@ -159,7 +159,8 @@ namespace OcrApp
                 var result = await _ocrEngine.RecognizeAsync(_lastCapturedBitmap);
                 if (result.Lines != null && result.Lines.Any())
                 {
-                    var paragraphs = OcrTextHelper.GroupLinesIntoParagraphs(result.Lines);
+                    // Add await here
+                    var paragraphs = await OcrTextHelper.GroupLinesIntoParagraphs(result.Lines);
                     ResultListView.ItemsSource = paragraphs;
                 }
                 else

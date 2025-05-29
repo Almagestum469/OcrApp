@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks; // Added for async Task
 using Windows.Foundation;
 using Windows.Media.Ocr;
 
@@ -107,7 +108,8 @@ namespace OcrApp.Utils
       return expandedLines;
     }
 
-    public static List<string> GroupLinesIntoParagraphs(IReadOnlyList<OcrLine> originalOcrLines)
+    // Changed signature to async Task<List<string>>
+    public static async Task<List<string>> GroupLinesIntoParagraphs(IReadOnlyList<OcrLine> originalOcrLines)
     {
       if (originalOcrLines == null || !originalOcrLines.Any())
       {
@@ -184,21 +186,33 @@ namespace OcrApp.Utils
         paragraphs.Add(currentParagraphBuilder.ToString());
       }
 
-      if (!paragraphs.Any() && processedLines.Any())
+      // Translate the generated paragraphs
+      var finalParagraphs = new List<string>();
+      if (paragraphs.Any())
+      {
+        foreach (var para in paragraphs)
+        {
+          finalParagraphs.Add(await TranslateParagraphAsync(para));
+        }
+      }
+
+      // Fallback logic if `paragraphs` was initially empty (and thus `finalParagraphs` is also empty)
+      if (!finalParagraphs.Any() && processedLines.Any())
       {
         var allText = string.Join(" ", processedLines.Select(l => l.Text));
         if (!string.IsNullOrWhiteSpace(allText))
         {
-          paragraphs.Add(allText);
+          string translatedSingleParagraph = await TranslateParagraphAsync(allText);
+          finalParagraphs.Add(translatedSingleParagraph);
         }
       }
 
-      if (paragraphs.Count == 0)
+      if (finalParagraphs.Count == 0)
       {
         return ["未能将文本组合成段落"];
       }
 
-      return paragraphs;
+      return finalParagraphs;
     }
 
     private static double GetAverageWordHeight(OcrLine line)
@@ -213,6 +227,43 @@ namespace OcrApp.Utils
         return 0;
       }
       return validWords.Average(word => word.BoundingRect.Height);
+    }
+
+    private static async Task<string> TranslateParagraphAsync(string paragraph)
+    {
+      if (string.IsNullOrWhiteSpace(paragraph))
+      {
+        return paragraph;
+      }
+
+      // Split paragraph into words using spaces, tabs, newlines, carriage returns as delimiters
+      // Corrected character literals
+      string[] words = paragraph.Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+
+      if (words.Length > 3)
+      {
+        try
+        {
+          string translatedText = await GoogleTranslator.TranslateEnglishToChineseAsync(paragraph);
+          // Check if translation was successful and not an error message from GoogleTranslator
+          if (!string.IsNullOrWhiteSpace(translatedText) && !translatedText.StartsWith("Error:"))
+          {
+            return translatedText;
+          }
+          else if (translatedText.StartsWith("Error:"))
+          {
+            Console.WriteLine($"GoogleTranslator returned an error for paragraph: \'{paragraph}\'. Error: {translatedText}");
+            return paragraph; // Return original if translator indicates error
+          }
+          return paragraph; // Return original if translated text is empty but not an error (unlikely for Google Translate)
+        }
+        catch (Exception ex)
+        {
+          Console.Error.WriteLine($"Exception during paragraph translation for \'{paragraph}\': {ex.Message}");
+          return paragraph; // Return original paragraph in case of exception
+        }
+      }
+      return paragraph; // Return original if not more than 3 words
     }
   }
 }
