@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "OcrApp (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "OcrApp (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
