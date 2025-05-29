@@ -18,7 +18,7 @@
             <Button x:Name="SelectCaptureItemButton" Content="选择捕获窗口" Click="SelectCaptureItemButton_Click" />
             <Button x:Name="RecognizeButton" x:FieldModifier="internal" Content="执行识别" Click="RecognizeButton_Click" IsEnabled="False" Margin="10,0,0,0"/>
         </StackPanel>
-        <ListView x:Name="ResultListView" Grid.Row="1" Margin="0,20,0,0" Height="300">
+        <ListView x:Name="ResultListView" Grid.Row="1" Margin="0,20,0,0" Height="300" IsItemClickEnabled="True" ItemClick="ResultListView_ItemClick">
             <ListView.ItemTemplate>
                 <DataTemplate>
                     <TextBlock Text="{Binding}" TextWrapping="Wrap"/>

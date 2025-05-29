@@ -208,7 +208,7 @@ namespace OcrApp.Utils
         return 0;
       }
       var validWords = line.Words.Where(w => w.BoundingRect.Height > 0).ToList();
-      if (!validWords.Any())
+      if (validWords.Count == 0)
       {
         return 0;
       }

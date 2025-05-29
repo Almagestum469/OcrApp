@@ -173,6 +173,19 @@ namespace OcrApp
             }
         }
 
+        private void ResultListView_ItemClick(object sender, ItemClickEventArgs e)
+        {
+            var clickedItem = e.ClickedItem as string;
+            if (!string.IsNullOrEmpty(clickedItem))
+            {
+                var dataPackage = new Windows.ApplicationModel.DataTransfer.DataPackage();
+                dataPackage.SetText(clickedItem);
+                Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dataPackage);
+                // 可以选择添加一个提示，告知用户文本已复制
+                // 例如：ShowCopiedNotification();
+            }
+        }
+
         // 移除了 CaptureOcrButton_Click 方法，因为功能已拆分
     }
 }
