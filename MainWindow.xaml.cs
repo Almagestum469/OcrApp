@@ -37,28 +37,58 @@ namespace OcrApp
     /// </summary>
     public sealed partial class MainWindow : Window
     {
+        private GraphicsCaptureItem? _captureItem;
+        private OcrEngine? _ocrEngine;
+        private SoftwareBitmap? _lastCapturedBitmap;
+
         public MainWindow()
         {
             InitializeComponent();
         }
-        private async void CaptureOcrButton_Click(object sender, RoutedEventArgs e)
+
+        private async void SelectCaptureItemButton_Click(object sender, RoutedEventArgs e)
         {
+            var picker = new GraphicsCapturePicker();
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+            _captureItem = await picker.PickSingleItemAsync();
+            if (_captureItem != null)
+            {
+                ResultListView.ItemsSource = new List<string> { $"已选择: {_captureItem.DisplayName}" };
+                RecognizeButton.IsEnabled = true;
+                // 初始化 OCR 引擎
+                var desiredLanguage = new Windows.Globalization.Language("en-US");
+                _ocrEngine = OcrEngine.TryCreateFromLanguage(desiredLanguage);
+                if (_ocrEngine == null)
+                {
+                    ResultListView.ItemsSource = new List<string> { $"无法使用指定语言 ({desiredLanguage.DisplayName}) 创建 OCR 引擎，尝试使用用户默认语言。" };
+                    _ocrEngine = OcrEngine.TryCreateFromUserProfileLanguages();
+                }
+                if (_ocrEngine == null)
+                {
+                    ResultListView.ItemsSource = new List<string> { "无法创建 OCR 引擎" };
+                    RecognizeButton.IsEnabled = false; // 如果引擎创建失败，禁用识别按钮
+                }
+            }
+            else
+            {
+                ResultListView.ItemsSource = new List<string> { "未选择捕获源" };
+                RecognizeButton.IsEnabled = false;
+            }
+        }
+
+        private async void RecognizeButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_captureItem == null || _ocrEngine == null)
+            {
+                ResultListView.ItemsSource = new List<string> { "请先选择捕获窗口并确保 OCR 引擎已初始化" };
+                return;
+            }
+
             try
             {
-                // 捕获屏幕区域
-                var picker = new GraphicsCapturePicker();
-                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-                WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
-                var item = await picker.PickSingleItemAsync();
-                if (item == null)
-                {
-                    ResultListView.ItemsSource = new List<string> { "未选择捕获源" };
-                    return;
-                }
-
                 // 用 Win2D 获取 Direct3D 设备
                 var canvasDevice = CanvasDevice.GetSharedDevice();
-
                 if (canvasDevice is not IDirect3DDevice d3dDevice)
                 {
                     ResultListView.ItemsSource = new List<string> { "无法获取 Direct3D 设备" };
@@ -69,8 +99,8 @@ namespace OcrApp
                             d3dDevice,
                             DirectXPixelFormat.B8G8R8A8UIntNormalized,
                             1,
-                            item.Size);
-                var session = framePool.CreateCaptureSession(item);
+                            _captureItem.Size);
+                var session = framePool.CreateCaptureSession(_captureItem);
 
                 session.StartCapture();
                 await System.Threading.Tasks.Task.Delay(100); // 等待捕获开始
@@ -90,17 +120,20 @@ namespace OcrApp
                     return;
                 }
 
-                SoftwareBitmap? bitmap = null;
+                // 清理上一次的位图资源
+                _lastCapturedBitmap?.Dispose();
+                _lastCapturedBitmap = null;
+
                 try
                 {
                     using var canvasBitmap = CanvasBitmap.CreateFromDirect3D11Surface(canvasDevice, capturedFrame.Surface);
                     var pixelBytes = canvasBitmap.GetPixelBytes();
-                    bitmap = new SoftwareBitmap(
+                    _lastCapturedBitmap = new SoftwareBitmap(
                         BitmapPixelFormat.Bgra8,
                         (int)canvasBitmap.SizeInPixels.Width,
                         (int)canvasBitmap.SizeInPixels.Height,
                         BitmapAlphaMode.Premultiplied);
-                    bitmap.CopyFromBuffer(pixelBytes.AsBuffer());
+                    _lastCapturedBitmap.CopyFromBuffer(pixelBytes.AsBuffer());
                 }
                 catch (Exception ex)
                 {
@@ -110,55 +143,29 @@ namespace OcrApp
                     framePool.Dispose();
                     return;
                 }
+                finally
+                {
+                    capturedFrame.Dispose(); // 确保 capturedFrame 被释放
+                    session.Dispose();
+                    framePool.Dispose();
+                }
 
-                if (bitmap == null) // 理论上如果上面 try 块成功，这里不会是 null，但以防万一
+                if (_lastCapturedBitmap == null)
                 {
                     ResultListView.ItemsSource = new List<string> { "位图转换失败" };
-                    capturedFrame.Dispose();
-                    session.Dispose();
-                    framePool.Dispose();
                     return;
                 }
 
-                // OCR
-                var desiredLanguage = new Windows.Globalization.Language("en-US"); // 设置为英语（美国）
-                var ocr = OcrEngine.TryCreateFromLanguage(desiredLanguage);
-
-                if (ocr == null)
-                {
-                    // 如果指定语言不可用，尝试回退到用户默认设置
-                    ResultListView.ItemsSource = new List<string> { $"无法使用指定语言 ({desiredLanguage.DisplayName}) 创建 OCR 引擎，尝试使用用户默认语言。" };
-                    ocr = OcrEngine.TryCreateFromUserProfileLanguages();
-                }
-
-                if (ocr == null)
-                {
-                    ResultListView.ItemsSource = new List<string> { "无法创建 OCR 引擎" };
-                    bitmap.Dispose();
-                    capturedFrame.Dispose();
-                    session.Dispose();
-                    framePool.Dispose();
-                    return;
-                }
-
-                var result = await ocr.RecognizeAsync(bitmap);
+                var result = await _ocrEngine.RecognizeAsync(_lastCapturedBitmap);
                 if (result.Lines != null && result.Lines.Any())
                 {
-                    // var textLines = result.Lines.Select(line => line.Text).ToList();
-                    // ResultListView.ItemsSource = textLines;
-                    var paragraphs = OcrTextHelper.GroupLinesIntoParagraphs(result.Lines); // 使用新的帮助类
+                    var paragraphs = OcrTextHelper.GroupLinesIntoParagraphs(result.Lines);
                     ResultListView.ItemsSource = paragraphs;
                 }
                 else
                 {
                     ResultListView.ItemsSource = new List<string> { "未识别到文本" };
                 }
-
-                // 清理资源
-                bitmap.Dispose();
-                capturedFrame.Dispose();
-                session.Dispose();
-                framePool.Dispose();
             }
             catch (Exception ex)
             {
@@ -166,84 +173,6 @@ namespace OcrApp
             }
         }
 
-        // Helper method to calculate the bounding box of an OcrLine
-        // private static Windows.Foundation.Rect GetLineBoundingRect(OcrLine line) // 方法已移至 OcrTextHelper
-        // {
-        //     if (line.Words == null || !line.Words.Any())
-        //     {
-        //         return new Windows.Foundation.Rect(); // Return empty Rect if no words
-        //     }
-
-        //     double minX = line.Words.Min(word => word.BoundingRect.Left);
-        //     double minY = line.Words.Min(word => word.BoundingRect.Top);
-        //     double maxX = line.Words.Max(word => word.BoundingRect.Right);
-        //     double maxY = line.Words.Max(word => word.BoundingRect.Bottom);
-
-        //     return new Windows.Foundation.Rect(minX, minY, maxX - minX, maxY - minY);
-        // }
-
-        // private List<string> GroupLinesIntoParagraphs(IReadOnlyList<OcrLine> ocrLines) // 方法已移至 OcrTextHelper
-        // {
-        //     if (ocrLines == null || !ocrLines.Any())
-        //     {
-        //         return new List<string> { "未识别到文本" };
-        //     }
-
-        //     var paragraphs = new List<string>();
-        //     if (!ocrLines.Any()) return paragraphs; // Should be caught by above, but good practice
-
-        //     var currentParagraphBuilder = new System.Text.StringBuilder();
-        //     currentParagraphBuilder.Append(ocrLines[0].Text);
-        //     Rect previousLineRect = GetLineBoundingRect(ocrLines[0]);
-
-        //     for (int i = 1; i < ocrLines.Count; i++)
-        //     {
-        //         var currentLine = ocrLines[i];
-        //         Rect currentLineRect = GetLineBoundingRect(currentLine);
-
-        //         // Calculate vertical distance between the bottom of the previous line and the top of the current line
-        //         double verticalGap = currentLineRect.Top - previousLineRect.Bottom;
-
-        //         // Heuristic for paragraph break: 
-        //         // If the gap is larger than 75% of the previous line's height.
-        //         // Also, ensure a minimum threshold (e.g., 5 pixels) to avoid breaks due to very small line heights.
-        //         double paragraphBreakThreshold = previousLineRect.Height * 0.75;
-        //         paragraphBreakThreshold = Math.Max(paragraphBreakThreshold, 5.0);
-
-        //         if (verticalGap > paragraphBreakThreshold)
-        //         {
-        //             paragraphs.Add(currentParagraphBuilder.ToString());
-        //             currentParagraphBuilder.Clear();
-        //             currentParagraphBuilder.Append(currentLine.Text);
-        //         }
-        //         else
-        //         {
-        //             currentParagraphBuilder.Append(" ").Append(currentLine.Text);
-        //         }
-        //         previousLineRect = currentLineRect;
-        //     }
-
-        //     if (currentParagraphBuilder.Length > 0)
-        //     {
-        //         paragraphs.Add(currentParagraphBuilder.ToString());
-        //     }
-
-        //     if (!paragraphs.Any() && ocrLines.Any())
-        //     {
-        //         // Fallback if no paragraphs were formed but there was text
-        //         var allText = string.Join(" ", ocrLines.Select(l => l.Text));
-        //         if (!string.IsNullOrWhiteSpace(allText))
-        //         {
-        //             paragraphs.Add(allText);
-        //         }
-        //     }
-
-        //     if (!paragraphs.Any()) // If still no paragraphs, means no text was effectively processed.
-        //     {
-        //         return new List<string> { "未能将文本组合成段落" };
-        //     }
-
-        //     return paragraphs;
-        // }
+        // 移除了 CaptureOcrButton_Click 方法，因为功能已拆分
     }
 }
