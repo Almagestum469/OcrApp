@@ -17,6 +17,12 @@
         <StackPanel Orientation="Horizontal" Spacing="10">
             <Button x:Name="CaptureOcrButton" Content="截屏并识别" Click="CaptureOcrButton_Click" />
         </StackPanel>
-        <TextBox x:Name="ResultTextBox" Grid.Row="1" Margin="0,20,0,0" AcceptsReturn="True" TextWrapping="Wrap" Height="300"/>
+        <ListView x:Name="ResultListView" Grid.Row="1" Margin="0,20,0,0" Height="300">
+            <ListView.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
     </Grid>
 </Window>
