@@ -231,6 +231,7 @@ namespace OcrApp.Utils
 
     private static async Task<string> TranslateParagraphAsync(string paragraph)
     {
+      return paragraph; // do not translate for now
       if (string.IsNullOrWhiteSpace(paragraph))
       {
         return paragraph;

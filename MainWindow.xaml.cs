@@ -31,21 +31,50 @@ using OcrApp.Utils; // 添加对新命名空间的引用
 // and more about our project templates, see: http://aka.ms/winui-project-info.
 
 namespace OcrApp
-{
-    /// <summary>
-    /// An empty window that can be used on its own or navigated to within a Frame.
-    /// </summary>
+{    /// <summary>
+     /// An empty window that can be used on its own or navigated to within a Frame.
+     /// </summary>
     public sealed partial class MainWindow : Window
     {
         private GraphicsCaptureItem? _captureItem;
         private OcrEngine? _ocrEngine;
         private SoftwareBitmap? _lastCapturedBitmap;
-
-        public MainWindow()
+        private bool _isPaddleOcrInitialized = false; public MainWindow()
         {
             InitializeComponent();
+            OcrEngineComboBox.SelectionChanged += OcrEngineComboBox_SelectionChanged;
         }
 
+        private async void OcrEngineComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            var selectedItem = OcrEngineComboBox.SelectedItem as ComboBoxItem;
+            var engineType = selectedItem?.Tag?.ToString();
+
+            if (engineType == "Paddle")
+            {
+                EngineStatusText.Text = "正在初始化PaddleOCR...";
+                EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Orange);
+
+                var success = await PaddleOcrHelper.InitializeAsync();
+                if (success)
+                {
+                    _isPaddleOcrInitialized = true;
+                    EngineStatusText.Text = "PaddleOCR就绪";
+                    EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Green);
+                }
+                else
+                {
+                    _isPaddleOcrInitialized = false;
+                    EngineStatusText.Text = "PaddleOCR初始化失败";
+                    EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Red);
+                }
+            }
+            else
+            {
+                EngineStatusText.Text = "Windows OCR就绪";
+                EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Green);
+            }
+        }
         private async void SelectCaptureItemButton_Click(object sender, RoutedEventArgs e)
         {
             var picker = new GraphicsCapturePicker();
@@ -55,20 +84,30 @@ namespace OcrApp
             if (_captureItem != null)
             {
                 ResultListView.ItemsSource = new List<string> { $"已选择: {_captureItem.DisplayName}" };
+
+                // 检查当前选择的OCR引擎
+                var selectedItem = OcrEngineComboBox.SelectedItem as ComboBoxItem;
+                var engineType = selectedItem?.Tag?.ToString();
+
+                if (engineType == "Windows")
+                {
+                    // 初始化 Windows OCR 引擎
+                    var desiredLanguage = new Windows.Globalization.Language("en-US");
+                    _ocrEngine = OcrEngine.TryCreateFromLanguage(desiredLanguage);
+                    if (_ocrEngine == null)
+                    {
+                        ResultListView.ItemsSource = new List<string> { $"无法使用指定语言 ({desiredLanguage.DisplayName}) 创建 OCR 引擎，尝试使用用户默认语言。" };
+                        _ocrEngine = OcrEngine.TryCreateFromUserProfileLanguages();
+                    }
+                    if (_ocrEngine == null)
+                    {
+                        ResultListView.ItemsSource = new List<string> { "无法创建 Windows OCR 引擎" };
+                        RecognizeButton.IsEnabled = false;
+                        return;
+                    }
+                }
+
                 RecognizeButton.IsEnabled = true;
-                // 初始化 OCR 引擎
-                var desiredLanguage = new Windows.Globalization.Language("en-US");
-                _ocrEngine = OcrEngine.TryCreateFromLanguage(desiredLanguage);
-                if (_ocrEngine == null)
-                {
-                    ResultListView.ItemsSource = new List<string> { $"无法使用指定语言 ({desiredLanguage.DisplayName}) 创建 OCR 引擎，尝试使用用户默认语言。" };
-                    _ocrEngine = OcrEngine.TryCreateFromUserProfileLanguages();
-                }
-                if (_ocrEngine == null)
-                {
-                    ResultListView.ItemsSource = new List<string> { "无法创建 OCR 引擎" };
-                    RecognizeButton.IsEnabled = false; // 如果引擎创建失败，禁用识别按钮
-                }
             }
             else
             {
@@ -76,12 +115,26 @@ namespace OcrApp
                 RecognizeButton.IsEnabled = false;
             }
         }
-
-        private async void RecognizeButton_Click(object sender, RoutedEventArgs e) // Add async keyword
+        private async void RecognizeButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_captureItem == null || _ocrEngine == null)
+            var selectedItem = OcrEngineComboBox.SelectedItem as ComboBoxItem;
+            var engineType = selectedItem?.Tag?.ToString();
+
+            if (_captureItem == null)
             {
-                ResultListView.ItemsSource = new List<string> { "请先选择捕获窗口并确保 OCR 引擎已初始化" };
+                ResultListView.ItemsSource = new List<string> { "请先选择捕获窗口" };
+                return;
+            }
+
+            // 检查引擎状态
+            if (engineType == "Paddle" && !_isPaddleOcrInitialized)
+            {
+                ResultListView.ItemsSource = new List<string> { "PaddleOCR引擎未初始化" };
+                return;
+            }
+            else if (engineType == "Windows" && _ocrEngine == null)
+            {
+                ResultListView.ItemsSource = new List<string> { "Windows OCR引擎未初始化" };
                 return;
             }
 
@@ -156,21 +209,44 @@ namespace OcrApp
                     return;
                 }
 
-                var result = await _ocrEngine.RecognizeAsync(_lastCapturedBitmap);
-                if (result.Lines != null && result.Lines.Any())
+                // 根据选择的引擎执行OCR
+                List<string> results;
+                if (engineType == "Paddle")
                 {
-                    // Add await here
-                    var paragraphs = await OcrTextHelper.GroupLinesIntoParagraphs(result.Lines);
-                    ResultListView.ItemsSource = paragraphs;
+                    EngineStatusText.Text = "PaddleOCR识别中...";
+                    EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Orange);
+
+                    results = await PaddleOcrHelper.RecognizeTextAsync(_lastCapturedBitmap);
+
+                    EngineStatusText.Text = "PaddleOCR就绪";
+                    EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Green);
                 }
                 else
                 {
-                    ResultListView.ItemsSource = new List<string> { "未识别到文本" };
+                    EngineStatusText.Text = "Windows OCR识别中...";
+                    EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Orange);
+
+                    var result = await _ocrEngine!.RecognizeAsync(_lastCapturedBitmap);
+                    if (result.Lines != null && result.Lines.Any())
+                    {
+                        results = await OcrTextHelper.GroupLinesIntoParagraphs(result.Lines);
+                    }
+                    else
+                    {
+                        results = new List<string> { "未识别到文本" };
+                    }
+
+                    EngineStatusText.Text = "Windows OCR就绪";
+                    EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Green);
                 }
+
+                ResultListView.ItemsSource = results;
             }
             catch (Exception ex)
             {
                 ResultListView.ItemsSource = new List<string> { $"发生错误: {ex.Message}" };
+                EngineStatusText.Text = "OCR失败";
+                EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Red);
             }
         }
 

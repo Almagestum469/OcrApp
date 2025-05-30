@@ -11,14 +11,21 @@
 
     <Window.SystemBackdrop>
         <MicaBackdrop />
-    </Window.SystemBackdrop>
-
-    <Grid RowDefinitions="Auto,*" Padding="20">
+    </Window.SystemBackdrop>    <Grid RowDefinitions="Auto,Auto,*" Padding="20">
         <StackPanel Orientation="Horizontal" Spacing="10">
             <Button x:Name="SelectCaptureItemButton" Content="选择捕获窗口" Click="SelectCaptureItemButton_Click" />
             <Button x:Name="RecognizeButton" x:FieldModifier="internal" Content="执行识别" Click="RecognizeButton_Click" IsEnabled="False" Margin="10,0,0,0"/>
         </StackPanel>
-        <ListView x:Name="ResultListView" Grid.Row="1" Margin="0,20,0,0" Height="300" IsItemClickEnabled="True" ItemClick="ResultListView_ItemClick">
+        
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="10" Margin="0,10,0,0">
+            <TextBlock Text="OCR引擎:" VerticalAlignment="Center" />
+            <ComboBox x:Name="OcrEngineComboBox" SelectedIndex="0" MinWidth="150">
+                <ComboBoxItem Content="Windows OCR" Tag="Windows" />
+                <ComboBoxItem Content="PaddleOCR" Tag="Paddle" />
+            </ComboBox>
+            <TextBlock x:Name="EngineStatusText" Text="准备就绪" VerticalAlignment="Center" Foreground="Green" Margin="10,0,0,0" />
+        </StackPanel>
+        <ListView x:Name="ResultListView" Grid.Row="2" Margin="0,20,0,0" Height="300" IsItemClickEnabled="True" ItemClick="ResultListView_ItemClick">
             <ListView.ItemTemplate>
                 <DataTemplate>
                     <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
