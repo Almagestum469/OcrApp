@@ -1,39 +1,30 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
-using System.Text.Json;
-using System.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.Graphics.Capture;
 using Windows.Graphics.DirectX;
 using Windows.Graphics.DirectX.Direct3D11;
 using Windows.Graphics.Imaging;
-using Windows.Media.Ocr;
 using Microsoft.Graphics.Canvas;
-using OcrApp.Engines; // 新增引用
-
-// To learn more about WinUI, the WinUI project structure,
-// and more about our project templates, see: http://aka.ms/winui-project-info.
+using OcrApp.Engines;
 
 namespace OcrApp
-{    /// <summary>
-     /// An empty window that can be used on its own or navigated to within a Frame.
-     /// </summary>
+{
     public sealed partial class MainWindow : Window
     {
         private GraphicsCaptureItem? _captureItem;
         private SoftwareBitmap? _lastCapturedBitmap;
         private IOcrEngine? _ocrEngine; // 统一接口
-        private string _currentEngineType = "Windows";
+        private string _currentEngineType = "Paddle";
 
         public MainWindow()
         {
             InitializeComponent();
             OcrEngineComboBox.SelectionChanged += OcrEngineComboBox_SelectionChanged;
-            // 默认初始化Windows OCR
-            _ocrEngine = new WindowsOcrEngine();
+            // 默认初始化Paddle OCR
+            _ocrEngine = new PaddleOcrEngine();
             _ocrEngine.InitializeAsync();
         }
         private void UpdateDebugInfo(string debugInfo)
@@ -42,93 +33,6 @@ namespace OcrApp
             DebugScrollViewer.UpdateLayout();
             DebugScrollViewer.ScrollToVerticalOffset(DebugScrollViewer.ScrollableHeight);
         }
-        private string GenerateWindowsOcrDebugInfo(OcrResult ocrResult)
-        {
-            var debugInfo = new StringBuilder();
-            debugInfo.AppendLine("=== Windows OCR 识别结果详细信息 ===");
-            debugInfo.AppendLine($"识别时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-            debugInfo.AppendLine($"文本角度: {ocrResult.TextAngle?.ToString() ?? "N/A"}°");
-            debugInfo.AppendLine($"总行数: {ocrResult.Lines?.Count ?? 0}");
-            debugInfo.AppendLine();
-
-            if (ocrResult.Lines != null && ocrResult.Lines.Any())
-            {
-                for (int lineIndex = 0; lineIndex < ocrResult.Lines.Count; lineIndex++)
-                {
-                    var line = ocrResult.Lines[lineIndex];
-                    debugInfo.AppendLine($"--- 第 {lineIndex + 1} 行 ---");
-                    debugInfo.AppendLine($"行文本: \"{line.Text}\"");
-
-                    // 计算行的边界框
-                    if (line.Words != null && line.Words.Any())
-                    {
-                        var minX = line.Words.Min(w => w.BoundingRect.X);
-                        var minY = line.Words.Min(w => w.BoundingRect.Y);
-                        var maxX = line.Words.Max(w => w.BoundingRect.X + w.BoundingRect.Width);
-                        var maxY = line.Words.Max(w => w.BoundingRect.Y + w.BoundingRect.Height);
-                        debugInfo.AppendLine($"行边界: X={minX:F1}, Y={minY:F1}, W={maxX - minX:F1}, H={maxY - minY:F1}");
-                    }
-
-                    debugInfo.AppendLine($"单词数量: {line.Words?.Count ?? 0}");
-
-                    if (line.Words != null && line.Words.Any())
-                    {
-                        for (int wordIndex = 0; wordIndex < line.Words.Count; wordIndex++)
-                        {
-                            var word = line.Words[wordIndex];
-                            debugInfo.AppendLine($"  单词 {wordIndex + 1}: \"{word.Text}\"");
-                            debugInfo.AppendLine($"    边界: X={word.BoundingRect.X:F1}, Y={word.BoundingRect.Y:F1}, W={word.BoundingRect.Width:F1}, H={word.BoundingRect.Height:F1}");
-                        }
-                    }
-                    debugInfo.AppendLine();
-                }
-
-                // 添加原始数据的JSON序列化
-                debugInfo.AppendLine("=== 原始数据JSON序列化 ===");
-                try
-                {
-                    var ocrData = new
-                    {
-                        TextAngle = ocrResult.TextAngle,
-                        Lines = ocrResult.Lines.Select(line => new
-                        {
-                            Text = line.Text,
-                            Words = line.Words?.Select(word => new
-                            {
-                                Text = word.Text,
-                                BoundingRect = new
-                                {
-                                    X = word.BoundingRect.X,
-                                    Y = word.BoundingRect.Y,
-                                    Width = word.BoundingRect.Width,
-                                    Height = word.BoundingRect.Height
-                                }
-                            }).ToArray()
-                        }).ToArray()
-                    };
-
-                    var jsonOptions = new JsonSerializerOptions
-                    {
-                        WriteIndented = true,
-                        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
-                    };
-                    var jsonString = JsonSerializer.Serialize(ocrData, jsonOptions);
-                    debugInfo.AppendLine(jsonString);
-                }
-                catch (Exception ex)
-                {
-                    debugInfo.AppendLine($"JSON序列化失败: {ex.Message}");
-                }
-            }
-            else
-            {
-                debugInfo.AppendLine("未检测到任何文本行");
-            }
-
-            debugInfo.AppendLine("=== 调试信息结束 ===");
-            return debugInfo.ToString();
-        }
-
         private async void OcrEngineComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             var selectedItem = OcrEngineComboBox.SelectedItem as ComboBoxItem;
@@ -295,11 +199,8 @@ namespace OcrApp
                 var dataPackage = new Windows.ApplicationModel.DataTransfer.DataPackage();
                 dataPackage.SetText(clickedItem);
                 Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dataPackage);
-                // 可以选择添加一个提示，告知用户文本已复制
-                // 例如：ShowCopiedNotification();
             }
         }
 
-        // 移除了 CaptureOcrButton_Click 方法，因为功能已拆分
     }
 }
