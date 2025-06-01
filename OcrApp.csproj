@@ -28,16 +28,6 @@
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
 
-
-  <!--
-    A placebo for the vscode C# dev kit extension
-  -->
-  <ItemGroup>
-    <Compile Include="obj/Debug/*/*.cs">
-      <AutoGen>True</AutoGen>
-    </Compile>
-  </ItemGroup>
-
   <!--
     Defining the "Msix" ProjectCapability here allows the Single-project MSIX Packaging
     Tools extension to be activated for this project even if the Windows App SDK Nuget
