@@ -28,6 +28,10 @@
     <Manifest Include="$(ApplicationManifest)" />
   </ItemGroup>
 
+
+  <!--
+    A placebo for the vscode C# dev kit extension
+  -->
   <ItemGroup>
     <Compile Include="obj/Debug/*/*.cs">
       <AutoGen>True</AutoGen>
