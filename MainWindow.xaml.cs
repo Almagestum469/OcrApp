@@ -26,7 +26,24 @@ namespace OcrApp
             // 默认初始化Paddle OCR
             _ocrEngine = new PaddleOcrEngine();
             _ocrEngine.InitializeAsync();
+            SetDefaultOcrEngineSelection(); // 新增调用
         }
+
+        private void SetDefaultOcrEngineSelection()
+        {
+            if (OcrEngineComboBox.Items.Count > 0)
+            {
+                for (int i = 0; i < OcrEngineComboBox.Items.Count; i++)
+                {
+                    if (OcrEngineComboBox.Items[i] is ComboBoxItem item && item.Tag?.ToString() == _currentEngineType)
+                    {
+                        OcrEngineComboBox.SelectedIndex = i;
+                        break;
+                    }
+                }
+            }
+        }
+
         private void UpdateDebugInfo(string debugInfo)
         {
             DebugTextBlock.Text = debugInfo;
@@ -37,7 +54,7 @@ namespace OcrApp
         {
             var selectedItem = OcrEngineComboBox.SelectedItem as ComboBoxItem;
             var engineType = selectedItem?.Tag?.ToString();
-            _currentEngineType = engineType ?? "Windows";
+            _currentEngineType = engineType ?? "Paddle";
 
             if (engineType == "Paddle")
             {

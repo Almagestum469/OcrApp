@@ -19,7 +19,7 @@
         
         <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="10" Margin="0,10,0,0">
             <TextBlock Text="OCR引擎:" VerticalAlignment="Center" />
-            <ComboBox x:Name="OcrEngineComboBox" SelectedIndex="0" MinWidth="150">
+            <ComboBox x:Name="OcrEngineComboBox" MinWidth="150">
                 <ComboBoxItem Content="Windows OCR" Tag="Windows" />
                 <ComboBoxItem Content="PaddleOCR" Tag="Paddle" />
             </ComboBox>
