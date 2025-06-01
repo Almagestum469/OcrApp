@@ -29,7 +29,7 @@ namespace OcrApp.Engines
         FullOcrModel model = LocalFullModels.EnglishV4;
         _paddleOcrEngine = new PaddleOcrAll(model, PaddleDevice.Mkldnn())
         {
-          AllowRotateDetection = true,
+          AllowRotateDetection = false,
           Enable180Classification = false,
         };
         _isInitialized = true;
@@ -61,7 +61,13 @@ namespace OcrApp.Engines
         var recognizedTexts = new List<string>();
         if (result.Regions != null && result.Regions.Any())
         {
-          var sortedRegions = result.Regions
+          var filteredRegions = result.Regions.Where(r => r.Score >= 0.9).ToList();
+          if (!filteredRegions.Any())
+          {
+            recognizedTexts.Add("未识别到满足置信度要求的文本");
+            return recognizedTexts;
+          }
+          var sortedRegions = filteredRegions
               .OrderBy(r => r.Rect.Center.Y)
               .ThenBy(r => r.Rect.Center.X)
               .ToList();
