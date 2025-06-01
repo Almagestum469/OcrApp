@@ -24,13 +24,22 @@
                 <ComboBoxItem Content="PaddleOCR" Tag="Paddle" />
             </ComboBox>
             <TextBlock x:Name="EngineStatusText" Text="准备就绪" VerticalAlignment="Center" Foreground="Green" Margin="10,0,0,0" />
-        </StackPanel>
-        <ListView x:Name="ResultListView" Grid.Row="2" Margin="0,20,0,0" Height="300" IsItemClickEnabled="True" ItemClick="ResultListView_ItemClick">
-            <ListView.ItemTemplate>
-                <DataTemplate>
-                    <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
-                </DataTemplate>
-            </ListView.ItemTemplate>
-        </ListView>
+        </StackPanel>        <Grid Grid.Row="2" Margin="0,20,0,0" RowDefinitions="300,10,*">
+            <ListView x:Name="ResultListView" Grid.Row="0" IsItemClickEnabled="True" ItemClick="ResultListView_ItemClick">
+                <ListView.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+            
+            <TextBlock Grid.Row="1" Text="调试信息:" VerticalAlignment="Center" FontWeight="Bold" Margin="0,5,0,0" />
+            
+            <ScrollViewer x:Name="DebugScrollViewer" Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" 
+                          BorderBrush="Gray" BorderThickness="1" Background="#F8F8F8" Margin="0,5,0,0">
+                <TextBlock x:Name="DebugTextBlock" Text="等待OCR识别..." FontFamily="Consolas" FontSize="11" 
+                           Padding="10" Foreground="DarkSlateGray" TextWrapping="Wrap" />
+            </ScrollViewer>
+        </Grid>
     </Grid>
 </Window>

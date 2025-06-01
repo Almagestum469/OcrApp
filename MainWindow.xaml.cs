@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
+using System.Text.Json;
+using System.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -39,10 +41,104 @@ namespace OcrApp
         private GraphicsCaptureItem? _captureItem;
         private OcrEngine? _ocrEngine;
         private SoftwareBitmap? _lastCapturedBitmap;
-        private bool _isPaddleOcrInitialized = false; public MainWindow()
+        private bool _isPaddleOcrInitialized = false;
+
+        public MainWindow()
         {
             InitializeComponent();
             OcrEngineComboBox.SelectionChanged += OcrEngineComboBox_SelectionChanged;
+        }
+        private void UpdateDebugInfo(string debugInfo)
+        {
+            DebugTextBlock.Text = debugInfo;
+            DebugScrollViewer.UpdateLayout();
+            DebugScrollViewer.ScrollToVerticalOffset(DebugScrollViewer.ScrollableHeight);
+        }
+        private string GenerateWindowsOcrDebugInfo(OcrResult ocrResult)
+        {
+            var debugInfo = new StringBuilder();
+            debugInfo.AppendLine("=== Windows OCR 识别结果详细信息 ===");
+            debugInfo.AppendLine($"识别时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            debugInfo.AppendLine($"文本角度: {ocrResult.TextAngle?.ToString() ?? "N/A"}°");
+            debugInfo.AppendLine($"总行数: {ocrResult.Lines?.Count ?? 0}");
+            debugInfo.AppendLine();
+
+            if (ocrResult.Lines != null && ocrResult.Lines.Any())
+            {
+                for (int lineIndex = 0; lineIndex < ocrResult.Lines.Count; lineIndex++)
+                {
+                    var line = ocrResult.Lines[lineIndex];
+                    debugInfo.AppendLine($"--- 第 {lineIndex + 1} 行 ---");
+                    debugInfo.AppendLine($"行文本: \"{line.Text}\"");
+
+                    // 计算行的边界框
+                    if (line.Words != null && line.Words.Any())
+                    {
+                        var minX = line.Words.Min(w => w.BoundingRect.X);
+                        var minY = line.Words.Min(w => w.BoundingRect.Y);
+                        var maxX = line.Words.Max(w => w.BoundingRect.X + w.BoundingRect.Width);
+                        var maxY = line.Words.Max(w => w.BoundingRect.Y + w.BoundingRect.Height);
+                        debugInfo.AppendLine($"行边界: X={minX:F1}, Y={minY:F1}, W={maxX - minX:F1}, H={maxY - minY:F1}");
+                    }
+
+                    debugInfo.AppendLine($"单词数量: {line.Words?.Count ?? 0}");
+
+                    if (line.Words != null && line.Words.Any())
+                    {
+                        for (int wordIndex = 0; wordIndex < line.Words.Count; wordIndex++)
+                        {
+                            var word = line.Words[wordIndex];
+                            debugInfo.AppendLine($"  单词 {wordIndex + 1}: \"{word.Text}\"");
+                            debugInfo.AppendLine($"    边界: X={word.BoundingRect.X:F1}, Y={word.BoundingRect.Y:F1}, W={word.BoundingRect.Width:F1}, H={word.BoundingRect.Height:F1}");
+                        }
+                    }
+                    debugInfo.AppendLine();
+                }
+
+                // 添加原始数据的JSON序列化
+                debugInfo.AppendLine("=== 原始数据JSON序列化 ===");
+                try
+                {
+                    var ocrData = new
+                    {
+                        TextAngle = ocrResult.TextAngle,
+                        Lines = ocrResult.Lines.Select(line => new
+                        {
+                            Text = line.Text,
+                            Words = line.Words?.Select(word => new
+                            {
+                                Text = word.Text,
+                                BoundingRect = new
+                                {
+                                    X = word.BoundingRect.X,
+                                    Y = word.BoundingRect.Y,
+                                    Width = word.BoundingRect.Width,
+                                    Height = word.BoundingRect.Height
+                                }
+                            }).ToArray()
+                        }).ToArray()
+                    };
+
+                    var jsonOptions = new JsonSerializerOptions
+                    {
+                        WriteIndented = true,
+                        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+                    };
+                    var jsonString = JsonSerializer.Serialize(ocrData, jsonOptions);
+                    debugInfo.AppendLine(jsonString);
+                }
+                catch (Exception ex)
+                {
+                    debugInfo.AppendLine($"JSON序列化失败: {ex.Message}");
+                }
+            }
+            else
+            {
+                debugInfo.AppendLine("未检测到任何文本行");
+            }
+
+            debugInfo.AppendLine("=== 调试信息结束 ===");
+            return debugInfo.ToString();
         }
 
         private async void OcrEngineComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -207,16 +303,18 @@ namespace OcrApp
                 {
                     ResultListView.ItemsSource = new List<string> { "位图转换失败" };
                     return;
-                }
-
-                // 根据选择的引擎执行OCR
-                List<string> results;
-                if (engineType == "Paddle")
+                }                // 根据选择的引擎执行OCR
+                List<string> results; if (engineType == "Paddle")
                 {
                     EngineStatusText.Text = "PaddleOCR识别中...";
                     EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Orange);
+                    UpdateDebugInfo("开始使用PaddleOCR识别...");
 
                     results = await PaddleOcrHelper.RecognizeTextAsync(_lastCapturedBitmap);
+
+                    // 获取PaddleOCR的详细调试信息
+                    var paddleDebugInfo = PaddleOcrHelper.GenerateDebugInfo();
+                    UpdateDebugInfo(paddleDebugInfo);
 
                     EngineStatusText.Text = "PaddleOCR就绪";
                     EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Green);
@@ -225,11 +323,17 @@ namespace OcrApp
                 {
                     EngineStatusText.Text = "Windows OCR识别中...";
                     EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Orange);
+                    UpdateDebugInfo("开始使用Windows OCR识别...");
 
-                    var result = await _ocrEngine!.RecognizeAsync(_lastCapturedBitmap);
-                    if (result.Lines != null && result.Lines.Any())
+                    var ocrResult = await _ocrEngine!.RecognizeAsync(_lastCapturedBitmap);
+
+                    // 生成详细的调试信息
+                    var debugInfo = GenerateWindowsOcrDebugInfo(ocrResult);
+                    UpdateDebugInfo(debugInfo);
+
+                    if (ocrResult.Lines != null && ocrResult.Lines.Any())
                     {
-                        results = await OcrTextHelper.GroupLinesIntoParagraphs(result.Lines);
+                        results = await OcrTextHelper.GroupLinesIntoParagraphs(ocrResult.Lines);
                     }
                     else
                     {

@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Text;
+using System.Text.Json;
 using OpenCvSharp;
 using Sdcb.PaddleOCR;
 using Sdcb.PaddleOCR.Models;
@@ -16,9 +18,10 @@ namespace OcrApp.Utils
   public static class PaddleOcrHelper
   {
     private static PaddleOcrAll? _paddleOcrEngine;
-    private static bool _isInitialized = false;    /// <summary>
-                                                   /// 初始化PaddleOCR引擎
-                                                   /// </summary>
+    private static bool _isInitialized = false;
+    private static PaddleOcrResult? _lastOcrResult = null;/// <summary>
+                                                          /// 初始化PaddleOCR引擎
+                                                          /// </summary>
     public static Task<bool> InitializeAsync()
     {
       try
@@ -68,10 +71,9 @@ namespace OcrApp.Utils
         var imageBytes = await ConvertSoftwareBitmapToBytesAsync(bitmap);
 
         // 使用OpenCV解码图像
-        using var mat = Cv2.ImDecode(imageBytes, ImreadModes.Color);
-
-        // 执行OCR识别
+        using var mat = Cv2.ImDecode(imageBytes, ImreadModes.Color);        // 执行OCR识别
         var result = _paddleOcrEngine!.Run(mat);
+        _lastOcrResult = result; // 保存最后的识别结果
 
         // 处理识别结果
         var recognizedTexts = new List<string>();
@@ -169,15 +171,16 @@ namespace OcrApp.Utils
       }
 
       return paragraphs.Any() ? paragraphs : new List<string> { "未能将文本组合成段落" };
-    }
-
-    /// <summary>
-    /// 翻译段落文本
-    /// </summary>
+    }    /// <summary>
+         /// 翻译段落文本
+         /// </summary>
     private static async Task<string> TranslateParagraphAsync(string paragraph)
     {
-      return paragraph; // do not translate for now
+      // 暂时不进行翻译，直接返回原文
+      return await Task.FromResult(paragraph);
 
+      // 以下代码保留用于将来的翻译功能
+      /*
       if (string.IsNullOrWhiteSpace(paragraph))
         return paragraph;
 
@@ -205,6 +208,86 @@ namespace OcrApp.Utils
       }
 
       return paragraph; // 返回原文
+      */
+    }/// <summary>
+     /// 生成PaddleOCR调试信息
+     /// </summary>
+     /// <returns>详细的调试信息字符串</returns>
+    public static string GenerateDebugInfo()
+    {
+      var debugInfo = new StringBuilder();
+      debugInfo.AppendLine("=== PaddleOCR 识别结果详细信息 ===");
+      debugInfo.AppendLine($"识别时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+      debugInfo.AppendLine($"引擎状态: {(_isInitialized ? "已初始化" : "未初始化")}");
+
+      if (_lastOcrResult == null)
+      {
+        debugInfo.AppendLine("无识别结果数据");
+        debugInfo.AppendLine("=== 调试信息结束 ===");
+        return debugInfo.ToString();
+      }
+
+      var regionCount = _lastOcrResult.Regions?.Count() ?? 0;
+      debugInfo.AppendLine($"识别区域数量: {regionCount}");
+      debugInfo.AppendLine();
+
+      if (_lastOcrResult.Regions != null && _lastOcrResult.Regions.Any())
+      {
+        var regionsList = _lastOcrResult.Regions.ToList();
+        for (int regionIndex = 0; regionIndex < regionsList.Count; regionIndex++)
+        {
+          var region = regionsList[regionIndex];
+          debugInfo.AppendLine($"--- 区域 {regionIndex + 1} ---");
+          debugInfo.AppendLine($"文本: \"{region.Text}\"");
+          debugInfo.AppendLine($"置信度: {region.Score:F4}");
+
+          // 输出边界框信息
+          debugInfo.AppendLine($"边界框中心: X={region.Rect.Center.X:F1}, Y={region.Rect.Center.Y:F1}");
+          debugInfo.AppendLine($"边界框大小: W={region.Rect.Size.Width:F1}, H={region.Rect.Size.Height:F1}");
+          debugInfo.AppendLine($"旋转角度: {region.Rect.Angle:F2}°");
+
+          // 输出四个角点坐标
+          try
+          {
+            var points = region.Rect.Points();
+            if (points != null && points.Length >= 4)
+            {
+              debugInfo.AppendLine("四个角点坐标:");
+              for (int i = 0; i < points.Length; i++)
+              {
+                var point = points[i];
+                debugInfo.AppendLine($"  点{i + 1}: ({point.X:F1}, {point.Y:F1})");
+              }
+            }
+          }
+          catch (Exception ex)
+          {
+            debugInfo.AppendLine($"获取角点坐标失败: {ex.Message}");
+          }
+          debugInfo.AppendLine();
+        }
+      }
+      else
+      {
+        debugInfo.AppendLine("未检测到任何文本区域");
+      }
+
+      debugInfo.AppendLine("=== 调试信息结束 ===");
+      return debugInfo.ToString();
+    }    /// <summary>
+         /// 安全地获取旋转矩形的角点坐标
+         /// </summary>
+    private static object[] GetRectPoints(OpenCvSharp.RotatedRect rect)
+    {
+      try
+      {
+        var points = rect.Points();
+        return points?.Select(p => new { X = p.X, Y = p.Y }).ToArray() ?? new object[0];
+      }
+      catch
+      {
+        return new object[0];
+      }
     }
 
     /// <summary>

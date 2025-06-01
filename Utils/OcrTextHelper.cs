@@ -228,10 +228,13 @@ namespace OcrApp.Utils
       }
       return validWords.Average(word => word.BoundingRect.Height);
     }
-
     private static async Task<string> TranslateParagraphAsync(string paragraph)
     {
-      return paragraph; // do not translate for now
+      // 暂时不进行翻译，直接返回原文
+      return await Task.FromResult(paragraph);
+
+      /*
+      // 以下代码保留用于将来的翻译功能
       if (string.IsNullOrWhiteSpace(paragraph))
       {
         return paragraph;
@@ -265,6 +268,7 @@ namespace OcrApp.Utils
         }
       }
       return paragraph; // Return original if not more than 3 words
+      */
     }
   }
 }
