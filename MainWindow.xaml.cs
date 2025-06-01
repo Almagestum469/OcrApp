@@ -1,33 +1,18 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text.Json;
 using System.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
-using Microsoft.UI.Xaml.Data;
-using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Navigation;
-using Windows.Foundation;
-using Windows.Foundation.Collections;
 using Windows.Graphics.Capture;
 using Windows.Graphics.DirectX;
 using Windows.Graphics.DirectX.Direct3D11;
 using Windows.Graphics.Imaging;
 using Windows.Media.Ocr;
-using WinRT;
-using System.Runtime.InteropServices;
-using Windows.Storage.Streams;
-using Windows.Globalization;
 using Microsoft.Graphics.Canvas;
-using Microsoft.Graphics.Canvas.UI.Composition;
-using System.Collections.ObjectModel;
-using Microsoft.UI;
-using OcrApp.Utils; // 添加对新命名空间的引用
+using OcrApp.Engines; // 新增引用
 
 // To learn more about WinUI, the WinUI project structure,
 // and more about our project templates, see: http://aka.ms/winui-project-info.
@@ -39,14 +24,17 @@ namespace OcrApp
     public sealed partial class MainWindow : Window
     {
         private GraphicsCaptureItem? _captureItem;
-        private OcrEngine? _ocrEngine;
         private SoftwareBitmap? _lastCapturedBitmap;
-        private bool _isPaddleOcrInitialized = false;
+        private IOcrEngine? _ocrEngine; // 统一接口
+        private string _currentEngineType = "Windows";
 
         public MainWindow()
         {
             InitializeComponent();
             OcrEngineComboBox.SelectionChanged += OcrEngineComboBox_SelectionChanged;
+            // 默认初始化Windows OCR
+            _ocrEngine = new WindowsOcrEngine();
+            _ocrEngine.InitializeAsync();
         }
         private void UpdateDebugInfo(string debugInfo)
         {
@@ -145,22 +133,21 @@ namespace OcrApp
         {
             var selectedItem = OcrEngineComboBox.SelectedItem as ComboBoxItem;
             var engineType = selectedItem?.Tag?.ToString();
+            _currentEngineType = engineType ?? "Windows";
 
             if (engineType == "Paddle")
             {
                 EngineStatusText.Text = "正在初始化PaddleOCR...";
                 EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Orange);
-
-                var success = await PaddleOcrHelper.InitializeAsync();
+                _ocrEngine = new PaddleOcrEngine();
+                var success = await _ocrEngine.InitializeAsync();
                 if (success)
                 {
-                    _isPaddleOcrInitialized = true;
                     EngineStatusText.Text = "PaddleOCR就绪";
                     EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Green);
                 }
                 else
                 {
-                    _isPaddleOcrInitialized = false;
                     EngineStatusText.Text = "PaddleOCR初始化失败";
                     EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Red);
                 }
@@ -169,6 +156,8 @@ namespace OcrApp
             {
                 EngineStatusText.Text = "Windows OCR就绪";
                 EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Green);
+                _ocrEngine = new WindowsOcrEngine();
+                await _ocrEngine.InitializeAsync();
             }
         }
         private async void SelectCaptureItemButton_Click(object sender, RoutedEventArgs e)
@@ -180,29 +169,6 @@ namespace OcrApp
             if (_captureItem != null)
             {
                 ResultListView.ItemsSource = new List<string> { $"已选择: {_captureItem.DisplayName}" };
-
-                // 检查当前选择的OCR引擎
-                var selectedItem = OcrEngineComboBox.SelectedItem as ComboBoxItem;
-                var engineType = selectedItem?.Tag?.ToString();
-
-                if (engineType == "Windows")
-                {
-                    // 初始化 Windows OCR 引擎
-                    var desiredLanguage = new Windows.Globalization.Language("en-US");
-                    _ocrEngine = OcrEngine.TryCreateFromLanguage(desiredLanguage);
-                    if (_ocrEngine == null)
-                    {
-                        ResultListView.ItemsSource = new List<string> { $"无法使用指定语言 ({desiredLanguage.DisplayName}) 创建 OCR 引擎，尝试使用用户默认语言。" };
-                        _ocrEngine = OcrEngine.TryCreateFromUserProfileLanguages();
-                    }
-                    if (_ocrEngine == null)
-                    {
-                        ResultListView.ItemsSource = new List<string> { "无法创建 Windows OCR 引擎" };
-                        RecognizeButton.IsEnabled = false;
-                        return;
-                    }
-                }
-
                 RecognizeButton.IsEnabled = true;
             }
             else
@@ -213,27 +179,16 @@ namespace OcrApp
         }
         private async void RecognizeButton_Click(object sender, RoutedEventArgs e)
         {
-            var selectedItem = OcrEngineComboBox.SelectedItem as ComboBoxItem;
-            var engineType = selectedItem?.Tag?.ToString();
-
             if (_captureItem == null)
             {
                 ResultListView.ItemsSource = new List<string> { "请先选择捕获窗口" };
                 return;
             }
-
-            // 检查引擎状态
-            if (engineType == "Paddle" && !_isPaddleOcrInitialized)
+            if (_ocrEngine == null)
             {
-                ResultListView.ItemsSource = new List<string> { "PaddleOCR引擎未初始化" };
+                ResultListView.ItemsSource = new List<string> { "OCR引擎未初始化" };
                 return;
             }
-            else if (engineType == "Windows" && _ocrEngine == null)
-            {
-                ResultListView.ItemsSource = new List<string> { "Windows OCR引擎未初始化" };
-                return;
-            }
-
             try
             {
                 // 用 Win2D 获取 Direct3D 设备
@@ -303,47 +258,25 @@ namespace OcrApp
                 {
                     ResultListView.ItemsSource = new List<string> { "位图转换失败" };
                     return;
-                }                // 根据选择的引擎执行OCR
-                List<string> results; if (engineType == "Paddle")
+                }
+                // 统一通过接口调用OCR
+                if (_currentEngineType == "Paddle")
                 {
                     EngineStatusText.Text = "PaddleOCR识别中...";
                     EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Orange);
                     UpdateDebugInfo("开始使用PaddleOCR识别...");
-
-                    results = await PaddleOcrHelper.RecognizeTextAsync(_lastCapturedBitmap);
-
-                    // 获取PaddleOCR的详细调试信息
-                    var paddleDebugInfo = PaddleOcrHelper.GenerateDebugInfo();
-                    UpdateDebugInfo(paddleDebugInfo);
-
-                    EngineStatusText.Text = "PaddleOCR就绪";
-                    EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Green);
                 }
                 else
                 {
                     EngineStatusText.Text = "Windows OCR识别中...";
                     EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Orange);
                     UpdateDebugInfo("开始使用Windows OCR识别...");
-
-                    var ocrResult = await _ocrEngine!.RecognizeAsync(_lastCapturedBitmap);
-
-                    // 生成详细的调试信息
-                    var debugInfo = GenerateWindowsOcrDebugInfo(ocrResult);
-                    UpdateDebugInfo(debugInfo);
-
-                    if (ocrResult.Lines != null && ocrResult.Lines.Any())
-                    {
-                        results = await OcrTextHelper.GroupLinesIntoParagraphs(ocrResult.Lines);
-                    }
-                    else
-                    {
-                        results = new List<string> { "未识别到文本" };
-                    }
-
-                    EngineStatusText.Text = "Windows OCR就绪";
-                    EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Green);
                 }
-
+                var results = await _ocrEngine.RecognizeAsync(_lastCapturedBitmap);
+                var debugInfo = _ocrEngine.GenerateDebugInfo();
+                UpdateDebugInfo(debugInfo);
+                EngineStatusText.Text = _currentEngineType == "Paddle" ? "PaddleOCR就绪" : "Windows OCR就绪";
+                EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Green);
                 ResultListView.ItemsSource = results;
             }
             catch (Exception ex)
