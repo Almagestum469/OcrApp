@@ -39,7 +39,7 @@ namespace OcrApp.Engines
     /// <summary>
     /// OCR置信度阈值，低于此值的文本区域将被过滤
     /// </summary>
-    private double _confidenceThreshold = 0.96;
+    private double _confidenceThreshold = 0.95;
 
     /// <summary>
     /// 行高差异阈值倍数，用于判断两行是否因高度差异过大而属于不同段落。
@@ -54,7 +54,7 @@ namespace OcrApp.Engines
         if (_isInitialized && _paddleOcrEngine != null)
           return Task.FromResult(true);
         FullOcrModel model = LocalFullModels.EnglishV4;
-        _paddleOcrEngine = new PaddleOcrAll(model, PaddleDevice.Mkldnn())
+        _paddleOcrEngine = new PaddleOcrAll(model, PaddleDevice.Onnx())
         {
           AllowRotateDetection = false,
           Enable180Classification = false,
