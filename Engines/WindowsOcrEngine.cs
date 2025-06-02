@@ -14,6 +14,11 @@ namespace OcrApp.Engines
     private OcrEngine? _ocrEngine;
     private OcrResult? _lastOcrResult;
 
+    // 段落分组算法参数
+    private double _verticalBreakThresholdMultiplier = 1.5;
+    private double _horizontalOverlapThreshold = 0.3;
+    private double _heightDifferenceThresholdMultiplier = 1.5;
+
     public Task<bool> InitializeAsync()
     {
       var desiredLanguage = new Windows.Globalization.Language("en-US");
@@ -77,92 +82,125 @@ namespace OcrApp.Engines
       return debugInfo.ToString();
     }
 
-    private async Task<List<string>> GroupLinesIntoParagraphs(IReadOnlyList<OcrLine> originalOcrLines)
+    public void SetParagraphGroupingParameters(
+      double verticalMultiplier = 1.5,
+      double horizontalOverlapThreshold = 0.3,
+      double heightDifferenceMultiplier = 1.5)
     {
-      if (originalOcrLines == null || !originalOcrLines.Any())
+      _verticalBreakThresholdMultiplier = verticalMultiplier;
+      _horizontalOverlapThreshold = horizontalOverlapThreshold;
+      _heightDifferenceThresholdMultiplier = heightDifferenceMultiplier;
+    }
+
+    private class LineBounds
+    {
+      public OcrLine Line { get; }
+      public double Left { get; }
+      public double Right { get; }
+      public double Top { get; }
+      public double Bottom { get; }
+      public double Width { get; }
+      public double Height { get; }
+      public LineBounds(OcrLine line)
       {
-        return new List<string> { "未识别到文本" };
-      }
-      var processedLines = ExpandOcrLines(originalOcrLines, GetAverageWordHeight);
-      if (processedLines == null || !processedLines.Any())
-      {
-        return new List<string> { "未识别到文本" };
-      }
-      var paragraphs = new List<string>();
-      var currentParagraphBuilder = new StringBuilder();
-      currentParagraphBuilder.Append(processedLines[0].Text);
-      var previousLineRect = processedLines[0].BoundingRect;
-      double previousLineAvgWordHeight = processedLines[0].AverageWordHeight;
-      for (int i = 1; i < processedLines.Count; i++)
-      {
-        var currentLine = processedLines[i];
-        var currentLineRect = currentLine.BoundingRect;
-        double currentLineAvgWordHeight = currentLine.AverageWordHeight;
-        double verticalGap = currentLineRect.Top - previousLineRect.Bottom;
-        double paragraphBreakThresholdBaseHeight = previousLineRect.Height > 0 ? previousLineRect.Height : 10.0;
-        double paragraphBreakThreshold = paragraphBreakThresholdBaseHeight * 0.75;
-        paragraphBreakThreshold = Math.Max(paragraphBreakThreshold, 5.0);
-        bool significantFontDifference = false;
-        if (previousLineAvgWordHeight > 0.1 && currentLineAvgWordHeight > 0.1)
+        Line = line;
+        if (line.Words != null && line.Words.Any())
         {
-          double maxH = Math.Max(previousLineAvgWordHeight, currentLineAvgWordHeight);
-          double minH = Math.Min(previousLineAvgWordHeight, currentLineAvgWordHeight);
-          double FONT_SIZE_RATIO_THRESHOLD = 1.4;
-          double FONT_SIZE_ABSOLUTE_DIFF_THRESHOLD = 2.0;
-          if (minH > 0 && (maxH / minH > FONT_SIZE_RATIO_THRESHOLD) && (maxH - minH > FONT_SIZE_ABSOLUTE_DIFF_THRESHOLD))
-          {
-            significantFontDifference = true;
-          }
-        }
-        bool isNewParagraph = false;
-        if (verticalGap > paragraphBreakThreshold)
-        {
-          isNewParagraph = true;
-        }
-        else if (significantFontDifference)
-        {
-          isNewParagraph = true;
-        }
-        if (isNewParagraph)
-        {
-          paragraphs.Add(currentParagraphBuilder.ToString());
-          currentParagraphBuilder.Clear();
-          currentParagraphBuilder.Append(currentLine.Text);
+          Left = line.Words.Min(w => w.BoundingRect.Left);
+          Right = line.Words.Max(w => w.BoundingRect.Right);
+          Top = line.Words.Min(w => w.BoundingRect.Top);
+          Bottom = line.Words.Max(w => w.BoundingRect.Bottom);
+          Width = Right - Left;
+          Height = Bottom - Top;
         }
         else
         {
-          currentParagraphBuilder.Append(" ").Append(currentLine.Text);
-        }
-        previousLineRect = currentLineRect;
-        previousLineAvgWordHeight = currentLineAvgWordHeight;
-      }
-      if (currentParagraphBuilder.Length > 0)
-      {
-        paragraphs.Add(currentParagraphBuilder.ToString());
-      }
-      var finalParagraphs = new List<string>();
-      if (paragraphs.Any())
-      {
-        foreach (var para in paragraphs)
-        {
-          finalParagraphs.Add(await TranslateParagraphAsync(para));
+          Left = Right = Top = Bottom = Width = Height = 0;
         }
       }
-      if (!finalParagraphs.Any() && processedLines.Any())
-      {
-        var allText = string.Join(" ", processedLines.Select(l => l.Text));
-        if (!string.IsNullOrWhiteSpace(allText))
-        {
-          string translatedSingleParagraph = await TranslateParagraphAsync(allText);
-          finalParagraphs.Add(translatedSingleParagraph);
-        }
-      }
-      if (finalParagraphs.Count == 0)
-      {
-        return new List<string> { "未能将文本组合成段落" };
-      }
-      return finalParagraphs;
     }
+
+    private async Task<List<string>> GroupLinesIntoParagraphs(IReadOnlyList<OcrLine> ocrLines)
+    {
+      if (ocrLines == null || !ocrLines.Any())
+        return new List<string> { "未识别到文本" };
+
+      var lineBoundsList = ocrLines.Select(l => new LineBounds(l)).ToList();
+      var paragraphGroups = new List<List<LineBounds>>();
+
+      foreach (var lineBounds in lineBoundsList)
+      {
+        bool added = false;
+        foreach (var group in paragraphGroups)
+        {
+          if (CanMergeWithGroup(lineBounds, group))
+          {
+            group.Add(lineBounds);
+            added = true;
+            break;
+          }
+        }
+        if (!added)
+        {
+          paragraphGroups.Add(new List<LineBounds> { lineBounds });
+        }
+      }
+
+      var paragraphs = new List<string>();
+      foreach (var group in paragraphGroups)
+      {
+        var sortedGroup = group.OrderBy(l => l.Top).ThenBy(l => l.Left).ToList();
+        var paragraphText = string.Join(" ", sortedGroup.Select(l => l.Line.Text));
+        if (!string.IsNullOrWhiteSpace(paragraphText))
+        {
+          var translatedText = await TranslateParagraphAsync(paragraphText);
+          paragraphs.Add(translatedText);
+        }
+      }
+      return paragraphs.Any() ? paragraphs : new List<string> { "未能将文本组合成段落" };
+    }
+
+    private bool CanMergeWithGroup(LineBounds line, List<LineBounds> group)
+    {
+      foreach (var groupLine in group)
+      {
+        double avgHeight = (line.Height + groupLine.Height) / 2.0;
+        double verticalThreshold = avgHeight * _verticalBreakThresholdMultiplier;
+        double verticalGap = Math.Abs(((line.Top + line.Bottom) / 2.0) - ((groupLine.Top + groupLine.Bottom) / 2.0));
+        if (verticalGap > verticalThreshold)
+        {
+          continue;
+        }
+        double height1 = line.Height;
+        double height2 = groupLine.Height;
+        if (height1 > 0 && height2 > 0)
+        {
+          double larger = Math.Max(height1, height2);
+          double smaller = Math.Min(height1, height2);
+          if (larger > smaller * _heightDifferenceThresholdMultiplier)
+          {
+            continue;
+          }
+        }
+        double overlap = CalculateHorizontalOverlapByBounds(line, groupLine);
+        if (overlap >= _horizontalOverlapThreshold)
+        {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    private double CalculateHorizontalOverlapByBounds(LineBounds a, LineBounds b)
+    {
+      double overlapStart = Math.Max(a.Left, b.Left);
+      double overlapEnd = Math.Min(a.Right, b.Right);
+      double overlapWidth = Math.Max(0, overlapEnd - overlapStart);
+      if (overlapWidth <= 0) return 0.0;
+      double smallerWidth = Math.Min(a.Width, b.Width);
+      return smallerWidth > 0 ? overlapWidth / smallerWidth : 0.0;
+    }
+
     private class ProcessedLine
     {
       public string Text { get; }

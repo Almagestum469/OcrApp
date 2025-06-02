@@ -7,3 +7,8 @@ obj/
 *.userosscache
 *.sln.docstates
 publish/
+
+# Configuration files containing sensitive data
+appsettings.json
+appsettings.*.json
+!appsettings.example.json
