@@ -27,6 +27,7 @@ namespace OcrApp
     public partial class App : Application
     {
         private Window? _window;
+        public static Window? CurrentWindow { get; private set; }
 
         /// <summary>
         /// Initializes the singleton application object.  This is the first line of authored code
@@ -44,6 +45,7 @@ namespace OcrApp
         protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
             _window = new MainWindow();
+            CurrentWindow = _window;
             _window.Activate();
         }
     }

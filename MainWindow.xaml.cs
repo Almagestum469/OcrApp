@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.WindowsRuntime;
+using Windows.System;
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.Graphics.Capture;
@@ -19,6 +22,25 @@ namespace OcrApp
         private IOcrEngine? _ocrEngine; // 统一接口
         private string _currentEngineType = "Paddle";
 
+        // P/Invoke declarations for global keyboard hook
+        private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+        private static extern IntPtr GetModuleHandle(string lpModuleName);
+
+        private const int WH_KEYBOARD_LL = 13;
+        private const int WM_KEYDOWN = 0x0100;
+        private const int WM_SYSKEYDOWN = 0x0104; // For F-keys when Alt is pressed, though F2 alone is usually WM_KEYDOWN
+
+        private static LowLevelKeyboardProc _proc = HookCallback; // Keep a reference to prevent GC
+        private static IntPtr _hookID = IntPtr.Zero;
+
         public MainWindow()
         {
             InitializeComponent();
@@ -27,6 +49,51 @@ namespace OcrApp
             _ocrEngine = new PaddleOcrEngine();
             _ocrEngine.InitializeAsync();
             SetDefaultOcrEngineSelection(); // 新增调用
+
+            _hookID = SetHook(_proc);
+            this.Closed += MainWindow_Closed;
+        }
+
+        private void MainWindow_Closed(object sender, WindowEventArgs args)
+        {
+            UnhookWindowsHookEx(_hookID);
+        }
+
+        private static IntPtr SetHook(LowLevelKeyboardProc proc)
+        {
+            using (var curProcess = System.Diagnostics.Process.GetCurrentProcess())
+            using (var curModule = curProcess.MainModule)
+            {
+                if (curModule != null) // Add null check for curModule
+                {
+                    return SetWindowsHookEx(WH_KEYBOARD_LL, proc, GetModuleHandle(curModule.ModuleName), 0);
+                }
+                return IntPtr.Zero; // Or handle error appropriately
+            }
+        }
+
+        private static IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+        {
+            if (nCode >= 0 && (wParam == (IntPtr)WM_KEYDOWN || wParam == (IntPtr)WM_SYSKEYDOWN))
+            {
+                int vkCode = Marshal.ReadInt32(lParam);
+                // Check for F2 key (VK_F2 = 0x71)
+                if (vkCode == 0x71)
+                {
+                    // Get the current MainWindow instance if it exists
+                    var currentWindow = App.CurrentWindow as MainWindow;
+                    if (currentWindow != null && currentWindow.RecognizeButton.IsEnabled)
+                    {
+                        // Ensure the click is dispatched to the UI thread
+                        currentWindow.DispatcherQueue.TryEnqueue(() =>
+                        {
+                            currentWindow.RecognizeButton_Click(currentWindow.RecognizeButton, new RoutedEventArgs());
+                        });
+                        return (IntPtr)1; // Indicate that the event was handled
+                    }
+                }
+            }
+            return CallNextHookEx(_hookID, nCode, wParam, lParam);
         }
 
         private void SetDefaultOcrEngineSelection()
