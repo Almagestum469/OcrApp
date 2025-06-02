@@ -249,22 +249,40 @@ namespace OcrApp
                     return;
                 }
                 // 统一通过接口调用OCR
+                string statusMessage;
                 if (_currentEngineType == "Paddle")
                 {
-                    EngineStatusText.Text = "PaddleOCR识别中...";
+                    statusMessage = "PaddleOCR识别中...";
+                    EngineStatusText.Text = statusMessage;
                     EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Orange);
                     UpdateDebugInfo("开始使用PaddleOCR识别...");
+
+                    // 同步状态到翻译窗口
+                    if (_translationOverlay != null)
+                    {
+                        _translationOverlay.UpdateRecognitionStatus(statusMessage);
+                    }
                 }
                 else
                 {
-                    EngineStatusText.Text = "Windows OCR识别中...";
+                    statusMessage = "Windows OCR识别中...";
+                    EngineStatusText.Text = statusMessage;
                     EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Orange);
                     UpdateDebugInfo("开始使用Windows OCR识别...");
+
+                    // 同步状态到翻译窗口
+                    if (_translationOverlay != null)
+                    {
+                        _translationOverlay.UpdateRecognitionStatus(statusMessage);
+                    }
                 }
+
                 var results = await _ocrEngine.RecognizeAsync(_lastCapturedBitmap);
                 var debugInfo = _ocrEngine.GenerateDebugInfo();
                 UpdateDebugInfo(debugInfo);
-                EngineStatusText.Text = _currentEngineType == "Paddle" ? "PaddleOCR就绪" : "Windows OCR就绪";
+
+                statusMessage = _currentEngineType == "Paddle" ? "PaddleOCR就绪" : "Windows OCR就绪";
+                EngineStatusText.Text = statusMessage;
                 EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Green);
                 ResultListView.ItemsSource = results;
 

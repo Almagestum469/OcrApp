@@ -5,51 +5,33 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:OcrApp"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    mc:Ignorable="d"
-    Title="Translation Overlay">
-
-    <Grid Background="#80000000" Padding="20">
-        <Border Background="#E0000000" 
-                CornerRadius="10" 
-                Padding="15"
-                BorderBrush="#40FFFFFF"
-                BorderThickness="1">
-            <StackPanel Spacing="10">
-                <!-- 原文显示 -->
-                <TextBlock x:Name="OriginalTextBlock" 
-                          Text="原文将在这里显示..."
-                          Foreground="White"
-                          FontSize="16"
-                          TextWrapping="Wrap"
-                          Opacity="0.8" />
-                
-                <!-- 分隔线 -->
-                <Rectangle Height="1" 
-                          Fill="#40FFFFFF" 
-                          Margin="0,5" />
-                
-                <!-- 翻译结果 -->
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"    mc:Ignorable="d">    <Grid Background="Transparent" Padding="0">
+        <StackPanel Spacing="10" Margin="12">
+                <!-- 只显示翻译结果，不显示原文 -->
                 <TextBlock x:Name="TranslationTextBlock" 
                           Text="翻译结果将在这里显示..."
                           Foreground="#FFD700"
-                          FontSize="20"
-                          FontWeight="SemiBold"
-                          TextWrapping="Wrap" />
-                
+                          FontSize="14"
+                          FontWeight="Normal"
+                          TextWrapping="Wrap"
+                          Margin="0,6,0,0" />
                 <!-- 控制按钮 -->
                 <StackPanel Orientation="Horizontal" 
                            HorizontalAlignment="Right"
                            Spacing="10"
                            Margin="0,10,0,0">
                     <Button x:Name="PinButton" 
-                           Content="📌" 
+                           Content="📍" 
                            Click="PinButton_Click"
                            Background="Transparent"
                            Foreground="White"
                            BorderBrush="#40FFFFFF"
-                           Width="35"
-                           Height="35"
+                           Width="32"
+                           Height="32"
+                           FontSize="16"
+                           Padding="0"
+                           HorizontalContentAlignment="Center"
+                           VerticalContentAlignment="Center"
                            ToolTipService.ToolTip="固定/取消固定" />
                     <Button x:Name="CloseButton" 
                            Content="✖" 
@@ -57,11 +39,14 @@
                            Background="Transparent"
                            Foreground="#FF6B6B"
                            BorderBrush="#40FFFFFF"
-                           Width="35"
-                           Height="35"
+                           Width="32"
+                           Height="32"
+                           FontSize="16"
+                           Padding="0"
+                           HorizontalContentAlignment="Center"
+                           VerticalContentAlignment="Center"
                            ToolTipService.ToolTip="关闭" />
                 </StackPanel>
             </StackPanel>
-        </Border>
     </Grid>
 </Window>
