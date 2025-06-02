@@ -117,7 +117,8 @@ namespace OcrApp
 
       // 设置为工具窗口样式，避免在任务栏显示，并启用分层窗口
       var exStyle = GetWindowLong(hwnd, GWL_EXSTYLE);
-      exStyle |= WS_EX_TOOLWINDOW | WS_EX_LAYERED;
+      // exStyle |= WS_EX_TOOLWINDOW | WS_EX_LAYERED; // 移除 WS_EX_TOOLWINDOW
+      exStyle |= WS_EX_LAYERED; // 只保留 WS_EX_LAYERED
 
       // 如果当前应该置顶，确保加上置顶标志
       if (_isPinned)

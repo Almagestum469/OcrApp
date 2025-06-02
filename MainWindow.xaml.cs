@@ -194,7 +194,7 @@ namespace OcrApp
                             1,
                             _captureItem.Size);
                 var session = framePool.CreateCaptureSession(_captureItem);
-
+                session.IsCursorCaptureEnabled = false; // 禁用鼠标光标捕获
                 session.StartCapture();
                 await System.Threading.Tasks.Task.Delay(100); // 等待捕获开始
 
