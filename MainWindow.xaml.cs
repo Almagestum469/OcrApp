@@ -21,6 +21,7 @@ namespace OcrApp
         private SoftwareBitmap? _lastCapturedBitmap;
         private IOcrEngine? _ocrEngine; // 统一接口
         private string _currentEngineType = "Paddle";
+        private TranslationOverlay? _translationOverlay;
 
         // P/Invoke declarations for global keyboard hook
         private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
@@ -266,6 +267,12 @@ namespace OcrApp
                 EngineStatusText.Text = _currentEngineType == "Paddle" ? "PaddleOCR就绪" : "Windows OCR就绪";
                 EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Green);
                 ResultListView.ItemsSource = results;
+
+                // 如果翻译窗口打开，自动更新翻译结果
+                if (_translationOverlay != null && results != null && results.Count > 0)
+                {
+                    _translationOverlay.UpdateWithOcrResults(results);
+                }
             }
             catch (Exception ex)
             {
@@ -274,7 +281,6 @@ namespace OcrApp
                 EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Red);
             }
         }
-
         private void ResultListView_ItemClick(object sender, ItemClickEventArgs e)
         {
             var clickedItem = e.ClickedItem as string;
@@ -283,6 +289,29 @@ namespace OcrApp
                 var dataPackage = new Windows.ApplicationModel.DataTransfer.DataPackage();
                 dataPackage.SetText(clickedItem);
                 Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dataPackage);
+            }
+        }
+
+        private void ToggleTranslationOverlayButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_translationOverlay == null)
+            {
+                // 创建新的翻译窗口
+                _translationOverlay = new TranslationOverlay();
+                _translationOverlay.Closed += (s, args) =>
+                {
+                    _translationOverlay = null;
+                    ToggleTranslationOverlayButton.Content = "翻译窗口";
+                };
+                _translationOverlay.Activate();
+                ToggleTranslationOverlayButton.Content = "关闭翻译窗口";
+            }
+            else
+            {
+                // 关闭现有窗口
+                _translationOverlay.Close();
+                _translationOverlay = null;
+                ToggleTranslationOverlayButton.Content = "翻译窗口";
             }
         }
 
