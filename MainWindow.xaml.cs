@@ -423,7 +423,6 @@ namespace OcrApp
                 Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dataPackage);
             }
         }
-
         private void ToggleTranslationOverlayButton_Click(object sender, RoutedEventArgs e)
         {
             if (_translationOverlay == null)
@@ -434,9 +433,15 @@ namespace OcrApp
                 {
                     _translationOverlay = null;
                     ToggleTranslationOverlayButton.Content = "翻译窗口";
+                    // 重新启用快捷键和延迟设置
+                    HotkeyButton.IsEnabled = true;
+                    DelaySlider.IsEnabled = true;
                 };
                 _translationOverlay.Activate();
                 ToggleTranslationOverlayButton.Content = "关闭翻译窗口";
+                // 禁用快捷键和延迟设置
+                HotkeyButton.IsEnabled = false;
+                DelaySlider.IsEnabled = false;
             }
             else
             {
