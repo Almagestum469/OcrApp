@@ -30,7 +30,7 @@ namespace OcrApp
 
         // 添加快捷键和触发延迟相关变量
         private int _triggerHotkeyCode = 0x20; // 默认空格键 (VK_SPACE = 0x20)
-        private int _triggerDelayMs = 300; // 默认300毫秒延迟
+        private int _triggerDelayMs = 600; // 默认600毫秒延迟
         private bool _isSettingHotkey = false; // 是否处于设置快捷键状态
         private System.Threading.Timer? _triggerDelayTimer; // 触发延迟计时器
 

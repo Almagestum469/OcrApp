@@ -28,13 +28,13 @@
             </ComboBox>
             <TextBlock x:Name="EngineStatusText" Text="准备就绪" VerticalAlignment="Center" Foreground="Green" Margin="10,0,0,0" />
             
-            <TextBlock Text="快捷键:" VerticalAlignment="Center" Margin="20,0,0,0" />
+            <TextBlock Text="额外触发快捷键:" VerticalAlignment="Center" Margin="20,0,0,0" />
             <Button x:Name="HotkeyButton" Content="空格" Click="HotkeyButton_Click" MinWidth="60" />
             
             <TextBlock Text="触发延迟:" VerticalAlignment="Center" Margin="10,0,0,0" />
-            <Slider x:Name="DelaySlider" Width="100" Minimum="0" Maximum="1000" Value="300" 
+            <Slider x:Name="DelaySlider" Width="100" Minimum="0" Maximum="1000" Value="600"
                     ValueChanged="DelaySlider_ValueChanged" />
-            <TextBlock x:Name="DelayValueText" Text="300ms" VerticalAlignment="Center" MinWidth="50" />
+            <TextBlock x:Name="DelayValueText" Text="600ms" VerticalAlignment="Center" MinWidth="50" />
         </StackPanel>
         <Grid Grid.Row="2" Margin="0,20,0,0" RowDefinitions="300,Auto,*">
             <ListView x:Name="ResultListView" Grid.Row="0" IsItemClickEnabled="True" ItemClick="ResultListView_ItemClick">
