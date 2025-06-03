@@ -12,6 +12,8 @@ using Windows.Graphics.DirectX.Direct3D11;
 using Windows.Graphics.Imaging;
 using Microsoft.Graphics.Canvas;
 using OcrApp.Engines;
+using Windows.Storage.Streams;
+using Microsoft.UI.Windowing;
 
 namespace OcrApp
 {
@@ -22,6 +24,9 @@ namespace OcrApp
         private IOcrEngine? _ocrEngine; // 统一接口
         private string _currentEngineType = "Paddle";
         private TranslationOverlay? _translationOverlay;
+        // 添加区域选择相关变量
+        private Windows.Graphics.RectInt32? _selectedRegion;
+        private bool _useSelectedRegion = false;
 
         // P/Invoke declarations for global keyboard hook
         private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
@@ -154,16 +159,17 @@ namespace OcrApp
             var picker = new GraphicsCapturePicker();
             var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
             WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
-            _captureItem = await picker.PickSingleItemAsync();
-            if (_captureItem != null)
+            _captureItem = await picker.PickSingleItemAsync(); if (_captureItem != null)
             {
                 ResultListView.ItemsSource = new List<string> { $"已选择: {_captureItem.DisplayName}" };
                 RecognizeButton.IsEnabled = true;
+                SelectRegionButton.IsEnabled = true; // 启用区域选择按钮
             }
             else
             {
                 ResultListView.ItemsSource = new List<string> { "未选择捕获源" };
                 RecognizeButton.IsEnabled = false;
+                SelectRegionButton.IsEnabled = false; // 禁用区域选择按钮
             }
         }
         private async void RecognizeButton_Click(object sender, RoutedEventArgs e)
@@ -194,7 +200,12 @@ namespace OcrApp
                             1,
                             _captureItem.Size);
                 var session = framePool.CreateCaptureSession(_captureItem);
-                session.IsCursorCaptureEnabled = false; // 禁用鼠标光标捕获
+                try {
+                    // 尝试禁用鼠标光标捕获(可能在某些Windows版本上不可用)
+                    session.IsCursorCaptureEnabled = false;
+                } catch {
+                    // 忽略不支持此属性的平台错误
+                }
                 session.StartCapture();
                 await System.Threading.Tasks.Task.Delay(100); // 等待捕获开始
 
@@ -215,18 +226,79 @@ namespace OcrApp
 
                 // 清理上一次的位图资源
                 _lastCapturedBitmap?.Dispose();
-                _lastCapturedBitmap = null;
-
-                try
+                _lastCapturedBitmap = null; try
                 {
                     using var canvasBitmap = CanvasBitmap.CreateFromDirect3D11Surface(canvasDevice, capturedFrame.Surface);
                     var pixelBytes = canvasBitmap.GetPixelBytes();
-                    _lastCapturedBitmap = new SoftwareBitmap(
+                    SoftwareBitmap fullBitmap = new SoftwareBitmap(
                         BitmapPixelFormat.Bgra8,
                         (int)canvasBitmap.SizeInPixels.Width,
                         (int)canvasBitmap.SizeInPixels.Height,
                         BitmapAlphaMode.Premultiplied);
-                    _lastCapturedBitmap.CopyFromBuffer(pixelBytes.AsBuffer());
+                    fullBitmap.CopyFromBuffer(pixelBytes.AsBuffer());
+
+                    // 如果有选择区域，裁剪图像
+                    if (_useSelectedRegion && _selectedRegion.HasValue)
+                    {
+                        var region = _selectedRegion.Value;
+                        // 确保区域有效
+                        if (region.Width > 0 && region.Height > 0 &&
+                            region.X >= 0 && region.Y >= 0 &&
+                            region.X + region.Width <= fullBitmap.PixelWidth &&
+                            region.Y + region.Height <= fullBitmap.PixelHeight)
+                        {
+                            // 裁剪图像
+                            _lastCapturedBitmap = new SoftwareBitmap(
+                                fullBitmap.BitmapPixelFormat,
+                                region.Width,
+                                region.Height,
+                                fullBitmap.BitmapAlphaMode);
+                            // 使用BitmapTransform暂时不支持直接裁剪，我们将通过像素复制来实现
+                            // 创建临时共享空间
+                            var sourceBuffer = new Windows.Storage.Streams.Buffer((uint)(fullBitmap.PixelWidth * fullBitmap.PixelHeight * 4));
+                            var destBuffer = new Windows.Storage.Streams.Buffer((uint)(region.Width * region.Height * 4));
+
+                            // 将全图复制到缓冲区
+                            fullBitmap.CopyToBuffer(sourceBuffer);
+
+                            // 创建裁剪后图像的编码器
+                            using var ms = new InMemoryRandomAccessStream();
+                            var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, ms);
+
+                            // 设置裁剪参数
+                            encoder.SetSoftwareBitmap(fullBitmap);
+                            encoder.BitmapTransform.Bounds = new Windows.Graphics.Imaging.BitmapBounds
+                            {
+                                X = (uint)region.X,
+                                Y = (uint)region.Y,
+                                Width = (uint)region.Width,
+                                Height = (uint)region.Height
+                            };
+
+                            // 执行裁剪
+                            await encoder.FlushAsync();
+
+                            // 解码裁剪后的图像
+                            ms.Seek(0);
+                            var decoder = await BitmapDecoder.CreateAsync(ms);
+                            var cropped = await decoder.GetSoftwareBitmapAsync();
+
+                            // 保存裁剪结果
+                            _lastCapturedBitmap = cropped;
+                            UpdateDebugInfo($"已应用区域裁剪: X={region.X}, Y={region.Y}, 宽={region.Width}, 高={region.Height}");
+                        }
+                        else
+                        {
+                            // 区域无效，使用全图
+                            _lastCapturedBitmap = fullBitmap;
+                            UpdateDebugInfo("选定区域无效，使用全图");
+                        }
+                    }
+                    else
+                    {
+                        // 无选择区域，使用全图
+                        _lastCapturedBitmap = fullBitmap;
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -330,6 +402,121 @@ namespace OcrApp
                 _translationOverlay.Close();
                 _translationOverlay = null;
                 ToggleTranslationOverlayButton.Content = "翻译窗口";
+            }
+        }
+
+        private async void SelectRegionButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_captureItem == null)
+            {
+                ResultListView.ItemsSource = new List<string> { "请先选择捕获窗口" };
+                return;
+            }
+
+            try
+            {
+                // 先捕获一次当前窗口的图像用于区域选择
+                var canvasDevice = CanvasDevice.GetSharedDevice();
+                if (canvasDevice is not IDirect3DDevice d3dDevice)
+                {
+                    ResultListView.ItemsSource = new List<string> { "无法获取 Direct3D 设备" };
+                    return;
+                }
+
+                var framePool = Direct3D11CaptureFramePool.Create(
+                            d3dDevice,
+                            DirectXPixelFormat.B8G8R8A8UIntNormalized,
+                            1,
+                            _captureItem.Size);
+                var session = framePool.CreateCaptureSession(_captureItem);
+                try {
+                    // 尝试禁用鼠标光标捕获(可能在某些Windows版本上不可用)
+                    session.IsCursorCaptureEnabled = false;
+                } catch {
+                    // 忽略不支持此属性的平台错误
+                }
+                session.StartCapture();
+                await System.Threading.Tasks.Task.Delay(100); // 等待捕获开始
+
+                var capturedFrame = framePool.TryGetNextFrame();
+                if (capturedFrame == null)
+                {
+                    await System.Threading.Tasks.Task.Delay(500); // 重试
+                    capturedFrame = framePool.TryGetNextFrame();
+                }
+
+                if (capturedFrame == null)
+                {
+                    ResultListView.ItemsSource = new List<string> { "捕获失败：无法获取帧" };
+                    session.Dispose();
+                    framePool.Dispose();
+                    return;
+                }
+                SoftwareBitmap? previewBitmap = null;
+                try
+                {
+                    using var canvasBitmap = CanvasBitmap.CreateFromDirect3D11Surface(canvasDevice, capturedFrame.Surface);
+                    var pixelBytes = canvasBitmap.GetPixelBytes();
+                    previewBitmap = new SoftwareBitmap(
+                        BitmapPixelFormat.Bgra8,
+                        (int)canvasBitmap.SizeInPixels.Width,
+                        (int)canvasBitmap.SizeInPixels.Height,
+                        BitmapAlphaMode.Premultiplied);
+                    previewBitmap.CopyFromBuffer(pixelBytes.AsBuffer());
+                }
+                catch (Exception ex)
+                {
+                    ResultListView.ItemsSource = new List<string> { $"转换位图失败: {ex.Message}" };
+                    capturedFrame.Dispose();
+                    session.Dispose();
+                    framePool.Dispose();
+                    return;
+                }
+                finally
+                {
+                    capturedFrame.Dispose(); // 确保 capturedFrame 被释放
+                    session.Dispose();
+                    framePool.Dispose();
+                }
+
+                if (previewBitmap == null)
+                {
+                    ResultListView.ItemsSource = new List<string> { "位图转换失败" };
+                    return;
+                }
+
+                // 创建区域选择窗口
+                var regionSelector = new RegionSelector();
+                regionSelector.SetCapturedBitmap(previewBitmap);
+
+                // 订阅区域选择完成事件
+                regionSelector.SelectionConfirmed += (sender, region) =>
+                {
+                    if (region != null)
+                    {
+                        _selectedRegion = region;
+                        _useSelectedRegion = true;
+                        DispatcherQueue.TryEnqueue(() =>
+                        {
+                            ResultListView.ItemsSource = new List<string> { $"已设置识别区域: X={region.Value.X}, Y={region.Value.Y}, 宽={region.Value.Width}, 高={region.Value.Height}" };
+                        });
+                    }
+                    else
+                    {
+                        _selectedRegion = null;
+                        _useSelectedRegion = false;
+                        DispatcherQueue.TryEnqueue(() =>
+                        {
+                            ResultListView.ItemsSource = new List<string> { "未设置识别区域，将识别整个窗口" };
+                        });
+                    }
+                };                // 显示区域选择窗口
+                // 不使用Initialize方法，直接激活窗口
+                regionSelector.Activate();
+            }
+            catch (Exception ex)
+            {
+                ResultListView.ItemsSource = new List<string> { $"设置识别区域时出错: {ex.Message}" };
             }
         }
 
