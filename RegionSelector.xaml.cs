@@ -15,13 +15,10 @@ namespace OcrApp
     private SoftwareBitmap? _capturedBitmap; // 标记为可为空
     private Point _startPoint;
     private bool _isSelecting = false;
-    private double _imageScaleFactor = 1.0; // 用于处理图像可能被缩放的情况
 
     // 用于返回给调用者的选择区域坐标（相对于原始图像）
-    public Windows.Graphics.RectInt32? SelectedRegion { get; private set; }
-
-    // 当选择完成时触发的事件
-    public event EventHandler<Windows.Graphics.RectInt32?> SelectionConfirmed;
+    public Windows.Graphics.RectInt32? SelectedRegion { get; private set; }    // 当选择完成时触发的事件
+    public event EventHandler<Windows.Graphics.RectInt32?>? SelectionConfirmed;
 
     public RegionSelector()
     {
@@ -34,9 +31,7 @@ namespace OcrApp
 
       // 默认没有选择区域
       SelectedRegion = null;
-    }
-
-    // 设置要显示的图像
+    }    // 设置要显示的图像
     public async void SetCapturedBitmap(SoftwareBitmap bitmap)
     {
       _capturedBitmap = bitmap;
@@ -52,20 +47,25 @@ namespace OcrApp
       await bitmapImage.SetSourceAsync(stream);
 
       PreviewImage.Source = bitmapImage;
-      PreviewImage.Width = bitmap.PixelWidth;
-      PreviewImage.Height = bitmap.PixelHeight;
-
-      // 如果画布尺寸小于图像，可能需要调整图像缩放比例
-      CalcImageScaleFactor();
-    }
-
-    // 计算图像的缩放因子，用于将选择坐标转换为原始图像坐标
-    private void CalcImageScaleFactor()
+      // 移除固定宽高设置，让图片自适应
+      // PreviewImage.Width = bitmap.PixelWidth;
+      // PreviewImage.Height = bitmap.PixelHeight;
+    }    // 获取图片在Canvas中的实际显示区域（考虑Uniform缩放和居中）
+    private Rect GetImageDisplayRect()
     {
-      if (_capturedBitmap == null || PreviewImage.ActualWidth == 0)
-        return;
+      if (_capturedBitmap == null || PreviewImage.ActualWidth == 0 || PreviewImage.ActualHeight == 0)
+        return new Rect(0, 0, 0, 0);
 
-      _imageScaleFactor = _capturedBitmap.PixelWidth / PreviewImage.ActualWidth;
+      // 由于Image使用Stretch="Uniform"，我们可以直接使用Image的ActualWidth和ActualHeight
+      // 以及它在父容器中的位置来计算显示区域
+      double imageWidth = PreviewImage.ActualWidth;
+      double imageHeight = PreviewImage.ActualHeight;
+
+      // 获取Image在其父容器中的位置（应该是居中的）
+      var transform = PreviewImage.TransformToVisual(ImageCanvas);
+      var imagePosition = transform.TransformPoint(new Point(0, 0));
+
+      return new Rect(imagePosition.X, imagePosition.Y, imageWidth, imageHeight);
     }
 
     private void ImageCanvas_PointerPressed(object sender, PointerRoutedEventArgs e)
@@ -116,7 +116,6 @@ namespace OcrApp
       // 计算选择区域（相对于原始图像的坐标）
       CalculateSelectedRegion();
     }
-
     private void CalculateSelectedRegion()
     {
       if (SelectionRectangle.Width <= 0 || SelectionRectangle.Height <= 0)
@@ -125,24 +124,35 @@ namespace OcrApp
         return;
       }
 
-      // 获取选择框在Canvas中的坐标
-      double left = Canvas.GetLeft(SelectionRectangle);
-      double top = Canvas.GetTop(SelectionRectangle);
+      var displayRect = GetImageDisplayRect();
+      if (displayRect.Width <= 0 || displayRect.Height <= 0 || _capturedBitmap == null)
+      {
+        SelectedRegion = null;
+        return;
+      }
 
-      // 转换为原始图像的坐标（考虑可能的缩放）
-      int x = (int)(left * _imageScaleFactor);
-      int y = (int)(top * _imageScaleFactor);
-      int width = (int)(SelectionRectangle.Width * _imageScaleFactor);
-      int height = (int)(SelectionRectangle.Height * _imageScaleFactor);
+      // 获取选择框在Canvas中的坐标
+      double selectionLeft = Canvas.GetLeft(SelectionRectangle);
+      double selectionTop = Canvas.GetTop(SelectionRectangle);
+
+      // 转换为相对于图片显示区域的坐标
+      double relativeLeft = selectionLeft - displayRect.X;
+      double relativeTop = selectionTop - displayRect.Y;
+
+      // 计算缩放比例
+      double scale = displayRect.Width / _capturedBitmap.PixelWidth;
+
+      // 转换为原始图像坐标
+      int x = (int)(relativeLeft / scale);
+      int y = (int)(relativeTop / scale);
+      int width = (int)(SelectionRectangle.Width / scale);
+      int height = (int)(SelectionRectangle.Height / scale);
 
       // 确保不超出边界
-      if (_capturedBitmap != null)
-      {
-        x = Math.Max(0, Math.Min(x, _capturedBitmap.PixelWidth - 1));
-        y = Math.Max(0, Math.Min(y, _capturedBitmap.PixelHeight - 1));
-        width = Math.Min(width, _capturedBitmap.PixelWidth - x);
-        height = Math.Min(height, _capturedBitmap.PixelHeight - y);
-      }
+      x = Math.Max(0, Math.Min(x, _capturedBitmap.PixelWidth - 1));
+      y = Math.Max(0, Math.Min(y, _capturedBitmap.PixelHeight - 1));
+      width = Math.Min(width, _capturedBitmap.PixelWidth - x);
+      height = Math.Min(height, _capturedBitmap.PixelHeight - y);
 
       // 设置选择区域
       SelectedRegion = new Windows.Graphics.RectInt32(x, y, width, height);

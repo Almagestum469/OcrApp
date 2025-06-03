@@ -13,19 +13,21 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
-        </Grid.RowDefinitions>
-
-        <Canvas x:Name="ImageCanvas" Grid.Row="0" Background="Transparent">
-            <Image x:Name="PreviewImage" Stretch="None" />
-            <Rectangle x:Name="SelectionRectangle" 
-                       Stroke="Red" 
-                       StrokeThickness="2" 
-                       Fill="#30FF0000" 
-                       Canvas.Left="0" 
-                       Canvas.Top="0" 
-                       Width="0" 
-                       Height="0" />
-        </Canvas>
+        </Grid.RowDefinitions>        <Grid Grid.Row="0" Background="Transparent">
+            <!-- 图片容器，自适应大小 -->
+            <Image x:Name="PreviewImage" Stretch="Uniform" />
+            <!-- 选择层，覆盖在图片上方 -->
+            <Canvas x:Name="ImageCanvas" Background="Transparent">
+                <Rectangle x:Name="SelectionRectangle"
+                           Stroke="Red" 
+                           StrokeThickness="2" 
+                           Fill="#30FF0000" 
+                           Canvas.Left="0" 
+                           Canvas.Top="0" 
+                           Width="0" 
+                           Height="0" />
+            </Canvas>
+        </Grid>
 
         <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="10">
             <TextBlock Text="拖动鼠标选择识别区域" VerticalAlignment="Center" Margin="0,0,10,0" />
