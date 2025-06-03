@@ -31,7 +31,7 @@ _Add screenshots of your application here_
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/yourusername/OcrApp.git
+git clone https://github.com/Almagestum469/OcrApp.git
 cd OcrApp
 ```
 
@@ -57,7 +57,7 @@ dotnet run
 
 ### Pre-built Releases
 
-Download the latest release from the [Releases](https://github.com/yourusername/OcrApp/releases) page.
+Download the latest release from the [Releases](https://github.com/Almagestum469/OcrApp/releases) page.
 
 ## Usage
 
@@ -156,7 +156,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 If you encounter any issues or have questions, please:
 
-1. Check the [Issues](https://github.com/yourusername/OcrApp/issues) page
+1. Check the [Issues](https://github.com/Almagestum469/OcrApp/issues) page
 2. Create a new issue with detailed information
 3. Include system information and error messages
 
@@ -171,5 +171,3 @@ If you encounter any issues or have questions, please:
 - [ ] Multi-monitor support improvements
 
 ---
-
-**Note**: Replace `yourusername` with your actual GitHub username in the URLs above.
