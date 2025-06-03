@@ -115,8 +115,8 @@ namespace OcrApp
                         // 不再传递事件，避免快捷键对应用程序产生影响
                         return (IntPtr)1;
                     }
-                    // 否则检查是否匹配当前设置的快捷键
-                    else if (vkCode == currentWindow._triggerHotkeyCode && currentWindow.RecognizeButton.IsEnabled)
+                    // 检查是否匹配当前设置的快捷键或F2键(0x71)
+                    else if ((vkCode == currentWindow._triggerHotkeyCode || vkCode == 0x71) && currentWindow.RecognizeButton.IsEnabled)
                     {
                         // 使用延迟触发
                         currentWindow.DispatcherQueue.TryEnqueue(() =>
