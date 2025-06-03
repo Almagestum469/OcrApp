@@ -168,21 +168,9 @@ namespace OcrApp
           {
             continue;
           }
-
-          // 计算单词数
-          int wordCount = text.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
-
-          // 如果单词数小于3，直接添加原文
-          if (wordCount < 3)
-          {
-            translatedResults.Add(text);
-          }
-          else
-          {
-            // 否则翻译内容
-            var translation = await GoogleTranslator.TranslateEnglishToChineseAsync(text);
-            translatedResults.Add(translation);
-          }
+          // 调用翻译方法
+          var translation = await GoogleTranslator.TranslateEnglishToChineseAsync(text);
+          translatedResults.Add(translation);
         }
 
         // 检查是否有任何翻译结果
