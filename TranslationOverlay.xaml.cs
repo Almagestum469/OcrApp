@@ -28,7 +28,7 @@ namespace OcrApp
     private const uint SWP_NOMOVE = 0x2;
     private const uint SWP_NOSIZE = 0x1;
     private const uint SWP_SHOWWINDOW = 0x40; private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1); private static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
-    private bool _isPinned = false;
+    private bool _isPinned = true;
     private bool _isDragging = false;
     private Windows.Graphics.PointInt32 _lastPointerPosition; public TranslationOverlay()
     {
@@ -39,7 +39,7 @@ namespace OcrApp
       // 设置窗口样式 - 移除标题栏和边框
       this.ExtendsContentIntoTitleBar = true;
       this.SetTitleBar(null);      // 设置初始位置和大小 - 窗口调整为更大
-      this.AppWindow.Resize(new Windows.Graphics.SizeInt32(600, 200));      // 移动到屏幕顶部中央
+      this.AppWindow.Resize(new Windows.Graphics.SizeInt32(1200, 200));      // 移动到屏幕顶部中央
       var displayArea = Microsoft.UI.Windowing.DisplayArea.Primary;
       var workArea = displayArea.WorkArea;
       var x = (workArea.Width - 600) / 2;
