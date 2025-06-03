@@ -145,7 +145,6 @@ namespace OcrApp
     {
       TranslationTextBlock.Text = status;
     }
-
     public async void UpdateWithOcrResults(System.Collections.Generic.List<string> ocrResults)
     {
       if (ocrResults == null || ocrResults.Count == 0)
@@ -154,38 +153,47 @@ namespace OcrApp
         return;
       }
 
-      // 获取识别结果的最后一条
-      string textToTranslate = ocrResults[ocrResults.Count - 1];
-
-      // 检查最后一条结果是否有效
-      if (string.IsNullOrWhiteSpace(textToTranslate) ||
-          textToTranslate.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries).Length < 3)
-      {
-        // 如果最后一条无效，尝试找到最近的有效结果
-        for (int i = ocrResults.Count - 2; i >= 0; i--)
-        {
-          var text = ocrResults[i];
-          if (!string.IsNullOrWhiteSpace(text) &&
-              text.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries).Length >= 3)
-          {
-            textToTranslate = text;
-            break;
-          }
-        }
-      }
-
-      if (string.IsNullOrWhiteSpace(textToTranslate) ||
-          textToTranslate.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries).Length < 3)
-      {
-        TranslationTextBlock.Text = "无可翻译内容";
-        return;
-      }
-
       try
       {
         TranslationTextBlock.Text = "翻译中...";
-        var translation = await GoogleTranslator.TranslateEnglishToChineseAsync(textToTranslate);
-        TranslationTextBlock.Text = translation;
+
+        // 存储所有翻译结果
+        System.Collections.Generic.List<string> translatedResults = new System.Collections.Generic.List<string>();
+
+        // 为每个OCR结果进行翻译
+        foreach (var text in ocrResults)
+        {
+          // 跳过空白内容
+          if (string.IsNullOrWhiteSpace(text))
+          {
+            continue;
+          }
+
+          // 计算单词数
+          int wordCount = text.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
+
+          // 如果单词数小于3，直接添加原文
+          if (wordCount < 3)
+          {
+            translatedResults.Add(text);
+          }
+          else
+          {
+            // 否则翻译内容
+            var translation = await GoogleTranslator.TranslateEnglishToChineseAsync(text);
+            translatedResults.Add(translation);
+          }
+        }
+
+        // 检查是否有任何翻译结果
+        if (translatedResults.Count == 0)
+        {
+          TranslationTextBlock.Text = "无可翻译内容";
+          return;
+        }
+
+        // 将所有翻译结果合并为一个字符串，每个结果占一行
+        TranslationTextBlock.Text = string.Join("\n", translatedResults);
       }
       catch (Exception ex)
       {
