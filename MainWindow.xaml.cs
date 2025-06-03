@@ -77,14 +77,13 @@ namespace OcrApp
                 return IntPtr.Zero; // Or handle error appropriately
             }
         }
-
         private static IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
         {
             if (nCode >= 0 && (wParam == (IntPtr)WM_KEYDOWN || wParam == (IntPtr)WM_SYSKEYDOWN))
             {
                 int vkCode = Marshal.ReadInt32(lParam);
-                // Check for F2 key (VK_F2 = 0x71)
-                if (vkCode == 0x71)
+                // Check for Space key (VK_SPACE = 0x20)
+                if (vkCode == 0x20)
                 {
                     // Get the current MainWindow instance if it exists
                     var currentWindow = App.CurrentWindow as MainWindow;
@@ -95,7 +94,8 @@ namespace OcrApp
                         {
                             currentWindow.RecognizeButton_Click(currentWindow.RecognizeButton, new RoutedEventArgs());
                         });
-                        return (IntPtr)1; // Indicate that the event was handled
+                        // 不再返回(IntPtr)1，而是继续传递事件
+                        // 这样其他应用程序也能接收到空格键事件
                     }
                 }
             }
@@ -200,10 +200,13 @@ namespace OcrApp
                             1,
                             _captureItem.Size);
                 var session = framePool.CreateCaptureSession(_captureItem);
-                try {
+                try
+                {
                     // 尝试禁用鼠标光标捕获(可能在某些Windows版本上不可用)
                     session.IsCursorCaptureEnabled = false;
-                } catch {
+                }
+                catch
+                {
                     // 忽略不支持此属性的平台错误
                 }
                 session.StartCapture();
@@ -429,10 +432,13 @@ namespace OcrApp
                             1,
                             _captureItem.Size);
                 var session = framePool.CreateCaptureSession(_captureItem);
-                try {
+                try
+                {
                     // 尝试禁用鼠标光标捕获(可能在某些Windows版本上不可用)
                     session.IsCursorCaptureEnabled = false;
-                } catch {
+                }
+                catch
+                {
                     // 忽略不支持此属性的平台错误
                 }
                 session.StartCapture();

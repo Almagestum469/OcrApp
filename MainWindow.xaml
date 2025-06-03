@@ -12,9 +12,8 @@
     <Window.SystemBackdrop>
         <MicaBackdrop />
     </Window.SystemBackdrop>    <Grid RowDefinitions="Auto,Auto,*" Padding="20">        <StackPanel Orientation="Horizontal" Spacing="10">
-            <Button x:Name="SelectCaptureItemButton" Content="选择捕获窗口" Click="SelectCaptureItemButton_Click" />
-            <Button x:Name="SelectRegionButton" Content="选择识别区域" Click="SelectRegionButton_Click" IsEnabled="False" Margin="10,0,0,0"/>
-            <Button x:Name="RecognizeButton" x:FieldModifier="internal" Content="执行识别(F2)" Click="RecognizeButton_Click" IsEnabled="False" Margin="10,0,0,0"/>
+            <Button x:Name="SelectCaptureItemButton" Content="选择捕获窗口" Click="SelectCaptureItemButton_Click" />            <Button x:Name="SelectRegionButton" Content="选择识别区域" Click="SelectRegionButton_Click" IsEnabled="False" Margin="10,0,0,0"/>
+            <Button x:Name="RecognizeButton" x:FieldModifier="internal" Content="执行识别(空格)" Click="RecognizeButton_Click" IsEnabled="False" Margin="10,0,0,0"/>
             <Button x:Name="ToggleTranslationOverlayButton" Content="翻译窗口" Click="ToggleTranslationOverlayButton_Click" Margin="10,0,0,0"/>
         </StackPanel>
         
