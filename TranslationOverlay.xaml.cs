@@ -48,9 +48,6 @@ namespace OcrApp
       SetWindowStyle();
       SetTopMost();
 
-      // 确保按钮状态与默认不置顶状态一致
-      PinButton.Content = "📍";
-
       // 启用拖拽功能
       var grid = this.Content as Grid;
       if (grid != null)
