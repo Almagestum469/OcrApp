@@ -140,19 +140,21 @@ namespace OcrApp
 
     public void UpdateRecognitionStatus(string status)
     {
-      TranslationTextBlock.Text = status;
+      RecognitionStatusTextBlock.Text = status;
     }
     public async void UpdateWithOcrResults(System.Collections.Generic.List<string> ocrResults)
     {
       if (ocrResults == null || ocrResults.Count == 0)
       {
-        TranslationTextBlock.Text = "无识别结果";
+        UpdateRecognitionStatus("无识别结果");
+        TranslationTextBlock.Text = string.Empty;
         return;
       }
 
       try
       {
-        TranslationTextBlock.Text = "翻译中...";
+        UpdateRecognitionStatus("翻译中...");
+        TranslationTextBlock.Text = string.Empty;
 
         // 存储所有翻译结果
         var translatedResults = new System.Collections.Generic.List<string>();
@@ -168,16 +170,19 @@ namespace OcrApp
         // 检查是否有任何翻译结果
         if (translatedResults.Count == 0)
         {
-          TranslationTextBlock.Text = "无可翻译内容";
+          UpdateRecognitionStatus("无可翻译内容");
+          TranslationTextBlock.Text = string.Empty;
           return;
         }
 
         // 将所有翻译结果合并为一个字符串，每个结果占一行
         TranslationTextBlock.Text = string.Join("\n", translatedResults);
+        UpdateRecognitionStatus("翻译完成");
       }
       catch (Exception ex)
       {
-        TranslationTextBlock.Text = $"翻译失败: {ex.Message}";
+        UpdateRecognitionStatus($"翻译失败: {ex.Message}");
+        TranslationTextBlock.Text = string.Empty;
       }
     }
     private void PinButton_Click(object sender, RoutedEventArgs e)

@@ -24,6 +24,12 @@
                            VerticalContentAlignment="Center"
                            IsTabStop="False"
                            ToolTipService.ToolTip="固定/取消固定" />
+                    <TextBlock x:Name="RecognitionStatusTextBlock"
+                               Text=""
+                               Foreground="White"
+                               FontSize="12"
+                               VerticalAlignment="Center"
+                               Margin="4,0,0,0" />
                 </StackPanel>
                 <!-- 只显示翻译结果，不显示原文 -->
                 <TextBlock x:Name="TranslationTextBlock" 
