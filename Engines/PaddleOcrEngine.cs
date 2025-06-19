@@ -77,23 +77,10 @@ namespace OcrApp.Engines
           {
             recognizedTexts.Add("未识别到满足置信度要求的文本");
             return recognizedTexts;
-          }
+          }          // 使用改进的排序算法：先按行分组，再按列排序
+          var sortedRegions = SortRegionsByRowsAndColumns(filteredRegions);
 
-          // 使用基于角点的实际边界框进行排序
-          var sortedRegions = filteredRegions
-              .OrderBy(r =>
-              {
-                var bounds = GetActualBounds(r);
-                return (bounds.Top + bounds.Bottom) / 2.0; // 使用实际的Y中心
-              })
-              .ThenBy(r =>
-              {
-                var bounds = GetActualBounds(r);
-                return (bounds.Left + bounds.Right) / 2.0; // 使用实际的X中心
-              })
-              .ToList();
-
-          // 直接将所有文本合并为一段，不使用段落分组算法
+          // 将排序后的文本合并
           var allText = string.Join(" ", sortedRegions.Select(r => r.Text));
           if (!string.IsNullOrWhiteSpace(allText))
           {
@@ -141,10 +128,31 @@ namespace OcrApp.Engines
       {
         debugInfo.AppendLine($"低置信度被过滤的区域数量: {lowConfidenceCount}");
       }
-      debugInfo.AppendLine();
-
-      if (filteredRegions.Any())
+      debugInfo.AppendLine(); if (filteredRegions.Any())
       {
+        // 显示排序前的原始顺序
+        debugInfo.AppendLine("=== 原始识别顺序 ===");
+        for (int regionIndex = 0; regionIndex < filteredRegions.Count; regionIndex++)
+        {
+          var region = filteredRegions[regionIndex];
+          var bounds = GetActualBounds(region);
+          debugInfo.AppendLine($"区域 {regionIndex + 1}: \"{region.Text}\" (X中心: {(bounds.Left + bounds.Right) / 2.0:F1}, Y中心: {(bounds.Top + bounds.Bottom) / 2.0:F1})");
+        }
+        debugInfo.AppendLine();
+
+        // 显示排序后的顺序
+        var sortedRegions = SortRegionsByRowsAndColumns(filteredRegions);
+        debugInfo.AppendLine("=== 排序后的阅读顺序 ===");
+        for (int sortedIndex = 0; sortedIndex < sortedRegions.Count; sortedIndex++)
+        {
+          var region = sortedRegions[sortedIndex];
+          var bounds = GetActualBounds(region);
+          debugInfo.AppendLine($"排序 {sortedIndex + 1}: \"{region.Text}\" (X中心: {(bounds.Left + bounds.Right) / 2.0:F1}, Y中心: {(bounds.Top + bounds.Bottom) / 2.0:F1})");
+        }
+        debugInfo.AppendLine();
+
+        // 显示详细的区域信息
+        debugInfo.AppendLine("=== 详细区域信息 ===");
         for (int regionIndex = 0; regionIndex < filteredRegions.Count; regionIndex++)
         {
           var region = filteredRegions[regionIndex];
@@ -196,7 +204,7 @@ namespace OcrApp.Engines
       return debugInfo.ToString();
     }
 
-    private async Task<byte[]> ConvertSoftwareBitmapToBytesAsync(SoftwareBitmap bitmap)
+    private static async Task<byte[]> ConvertSoftwareBitmapToBytesAsync(SoftwareBitmap bitmap)
     {
       using var stream = new InMemoryRandomAccessStream();
       var encoder = await Windows.Graphics.Imaging.BitmapEncoder.CreateAsync(Windows.Graphics.Imaging.BitmapEncoder.PngEncoderId, stream);
@@ -275,6 +283,69 @@ namespace OcrApp.Engines
       _paddleOcrEngine = null;
       _regionBoundsCache.Clear();
       _isInitialized = false;
+    }
+
+    /// <summary>
+    /// 改进的排序算法：先按行分组（Y坐标相近的为同一行），再在每行内按X坐标从左到右排序
+    /// </summary>
+    /// <param name="regions">待排序的文本区域列表</param>
+    /// <returns>排序后的文本区域列表</returns>
+    private List<PaddleOcrResultRegion> SortRegionsByRowsAndColumns(List<PaddleOcrResultRegion> regions)
+    {
+      if (!regions.Any()) return regions;
+
+      // 计算所有区域的平均高度，用于判断是否在同一行
+      var avgHeight = regions.Select(r => GetActualBounds(r).ActualHeight).Average();
+      // 行间距阈值：使用平均高度的一半作为判断同一行的阈值
+      var rowThreshold = avgHeight * 0.5;
+
+      var sortedRegions = new List<PaddleOcrResultRegion>();
+      var processedRegions = new HashSet<PaddleOcrResultRegion>();
+
+      // 按Y坐标对所有区域进行初步排序
+      var regionsByY = regions.OrderBy(r =>
+      {
+        var bounds = GetActualBounds(r);
+        return (bounds.Top + bounds.Bottom) / 2.0; // Y中心
+      }).ToList();
+
+      foreach (var currentRegion in regionsByY)
+      {
+        if (processedRegions.Contains(currentRegion)) continue;
+
+        // 找到与当前区域在同一行的所有区域
+        var currentBounds = GetActualBounds(currentRegion);
+        var currentYCenter = (currentBounds.Top + currentBounds.Bottom) / 2.0;
+
+        var sameRowRegions = regions.Where(r =>
+        {
+          if (processedRegions.Contains(r)) return false;
+
+          var bounds = GetActualBounds(r);
+          var yCenter = (bounds.Top + bounds.Bottom) / 2.0;
+
+          // 判断是否在同一行：Y中心差距小于阈值
+          return Math.Abs(yCenter - currentYCenter) <= rowThreshold;
+        }).ToList();
+
+        // 对同一行的区域按X坐标从左到右排序
+        var sortedRowRegions = sameRowRegions.OrderBy(r =>
+        {
+          var bounds = GetActualBounds(r);
+          return (bounds.Left + bounds.Right) / 2.0; // X中心
+        }).ToList();
+
+        // 添加到结果列表
+        sortedRegions.AddRange(sortedRowRegions);
+
+        // 标记已处理
+        foreach (var region in sameRowRegions)
+        {
+          processedRegions.Add(region);
+        }
+      }
+
+      return sortedRegions;
     }
   }
 }
