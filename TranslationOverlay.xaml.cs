@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Runtime.InteropServices;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -8,7 +9,7 @@ using WinRT.Interop;
 
 namespace OcrApp
 {
-  public sealed partial class TranslationOverlay : Window
+  public sealed partial class TranslationOverlay
   {
     [DllImport("user32.dll")]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
@@ -22,14 +23,13 @@ namespace OcrApp
 
     private const int GWL_EXSTYLE = -20;
     private const int WS_EX_TOPMOST = 0x8;
-    private const int WS_EX_TOOLWINDOW = 0x80;
     private const int WS_EX_LAYERED = 0x80000;
     private const uint LWA_ALPHA = 0x2;
     private const uint SWP_NOMOVE = 0x2;
     private const uint SWP_NOSIZE = 0x1;
     private const uint SWP_SHOWWINDOW = 0x40; private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1); private static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
     private bool _isPinned = true;
-    private bool _isDragging = false;
+    private bool _isDragging;
     private Windows.Graphics.PointInt32 _lastPointerPosition; public TranslationOverlay()
     {
       this.InitializeComponent();
@@ -155,16 +155,11 @@ namespace OcrApp
         TranslationTextBlock.Text = "翻译中...";
 
         // 存储所有翻译结果
-        System.Collections.Generic.List<string> translatedResults = new System.Collections.Generic.List<string>();
+        var translatedResults = new System.Collections.Generic.List<string>();
 
         // 为每个OCR结果进行翻译
-        foreach (var text in ocrResults)
+        foreach (var text in ocrResults.Where(text => !string.IsNullOrWhiteSpace(text)))
         {
-          // 跳过空白内容
-          if (string.IsNullOrWhiteSpace(text))
-          {
-            continue;
-          }
           // 调用翻译方法
           var translation = await GoogleTranslator.TranslateEnglishToChineseAsync(text);
           translatedResults.Add(translation);

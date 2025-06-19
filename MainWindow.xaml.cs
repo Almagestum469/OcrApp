@@ -2,8 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.WindowsRuntime;
-using Windows.System;
-using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.Graphics.Capture;
@@ -13,11 +11,10 @@ using Windows.Graphics.Imaging;
 using Microsoft.Graphics.Canvas;
 using OcrApp.Engines;
 using Windows.Storage.Streams;
-using Microsoft.UI.Windowing;
 
 namespace OcrApp
 {
-    public sealed partial class MainWindow : Window
+    public sealed partial class MainWindow
     {
         private GraphicsCaptureItem? _captureItem;
         private SoftwareBitmap? _lastCapturedBitmap;
@@ -26,12 +23,12 @@ namespace OcrApp
         private TranslationOverlay? _translationOverlay;
         // 添加区域选择相关变量
         private Windows.Graphics.RectInt32? _selectedRegion;
-        private bool _useSelectedRegion = false;
+        private bool _useSelectedRegion;
 
         // 添加快捷键和触发延迟相关变量
         private int _triggerHotkeyCode = 0x20; // 默认空格键 (VK_SPACE = 0x20)
         private int _triggerDelayMs = 600; // 默认600毫秒延迟
-        private bool _isSettingHotkey = false; // 是否处于设置快捷键状态
+        private bool _isSettingHotkey; // 是否处于设置快捷键状态
         private System.Threading.Timer? _triggerDelayTimer; // 触发延迟计时器
 
         // P/Invoke declarations for global keyboard hook
