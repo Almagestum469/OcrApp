@@ -12,12 +12,16 @@
     <Window.SystemBackdrop>
         <MicaBackdrop />
     </Window.SystemBackdrop>    
-    <Grid RowDefinitions="Auto,Auto,*" Padding="20">        
-        <Grid>
+    <Grid Padding="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <!-- 顶部按钮区 -->
+        <Grid Grid.Row="0">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
             <controls:WrapPanel Orientation="Horizontal" HorizontalSpacing="10" VerticalSpacing="10" Grid.Row="0">            
                 <Button x:Name="SelectCaptureItemButton" Content="选择捕获窗口" Click="SelectCaptureItemButton_Click" />
@@ -43,7 +47,8 @@
                 <TextBlock x:Name="DelayValueText" Text="600ms" VerticalAlignment="Center" MinWidth="50" />
             </controls:WrapPanel>
         </Grid>
-        <Grid Grid.Row="2" Margin="0,20,0,0">
+        <!-- 结果区 -->
+        <Grid Grid.Row="1" Margin="0,20,0,0">
             <Grid.RowDefinitions>
                 <RowDefinition Height="300"/>
                 <RowDefinition Height="Auto"/>
