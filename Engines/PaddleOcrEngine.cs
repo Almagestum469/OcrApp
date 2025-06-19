@@ -18,34 +18,15 @@ namespace OcrApp.Engines
   {
     private PaddleOcrAll? _paddleOcrEngine;
     private bool _isInitialized = false;
-    private PaddleOcrResult? _lastOcrResult;
-
-    /// <summary>
-    /// 缓存每个区域基于角点计算的实际边界框信息
-    /// </summary>
-    private Dictionary<PaddleOcrResultRegion, (double Left, double Right, double Top, double Bottom, double ActualWidth, double ActualHeight)> _regionBoundsCache = new Dictionary<PaddleOcrResultRegion, (double, double, double, double, double, double)>();// 段落分组算法参数 - 简化配置
-    /// <summary>
-    /// 垂直方向段落分割阈值倍数，相对于平均字符高度
-    /// 当两个文本区域的垂直距离超过 averageHeight * 此倍数时，认为是不同段落
-    /// </summary>
-    private double _verticalBreakThresholdMultiplier = 1.5;
-
-    /// <summary>
-    /// 水平重合度阈值，判断两个区域在水平方向是否足够重合
-    /// 值越大要求重合度越高，0.0表示不重合，1.0表示完全重合
-    /// </summary>
-    private double _horizontalOverlapThreshold = 0.3;
+    private PaddleOcrResult? _lastOcrResult;    /// <summary>
+                                                /// 缓存每个区域基于角点计算的实际边界框信息
+                                                /// </summary>
+    private Dictionary<PaddleOcrResultRegion, (double Left, double Right, double Top, double Bottom, double ActualWidth, double ActualHeight)> _regionBoundsCache = new Dictionary<PaddleOcrResultRegion, (double, double, double, double, double, double)>();
 
     /// <summary>
     /// OCR置信度阈值，低于此值的文本区域将被过滤
     /// </summary>
     private double _confidenceThreshold = 0.90;
-
-    /// <summary>
-    /// 行高差异阈值倍数，用于判断两行是否因高度差异过大而属于不同段落。
-    /// 例如，1.5 表示如果一个区域的高度是另一个区域的1.5倍以上（或反之），则视为不同段落的组成部分。
-    /// </summary>
-    private double _heightDifferenceThresholdMultiplier = 1.5;
 
     public Task<bool> InitializeAsync()
     {
@@ -87,15 +68,18 @@ namespace OcrApp.Engines
         var imageBytes = await ConvertSoftwareBitmapToBytesAsync(bitmap);
         using var mat = Cv2.ImDecode(imageBytes, ImreadModes.Color);
         var result = _paddleOcrEngine!.Run(mat);
-        _lastOcrResult = result;
-        var recognizedTexts = new List<string>(); if (result.Regions != null && result.Regions.Any())
+        _lastOcrResult = result; var recognizedTexts = new List<string>();
+
+        if (result.Regions != null && result.Regions.Any())
         {
           var filteredRegions = result.Regions.Where(r => r.Score >= _confidenceThreshold).ToList();
           if (!filteredRegions.Any())
           {
             recognizedTexts.Add("未识别到满足置信度要求的文本");
             return recognizedTexts;
-          }          // 使用基于角点的实际边界框进行排序
+          }
+
+          // 使用基于角点的实际边界框进行排序
           var sortedRegions = filteredRegions
               .OrderBy(r =>
               {
@@ -108,8 +92,17 @@ namespace OcrApp.Engines
                 return (bounds.Left + bounds.Right) / 2.0; // 使用实际的X中心
               })
               .ToList();
-          var paragraphs = await GroupRegionsIntoParagraphs(sortedRegions);
-          recognizedTexts.AddRange(paragraphs);
+
+          // 直接将所有文本合并为一段，不使用段落分组算法
+          var allText = string.Join(" ", sortedRegions.Select(r => r.Text));
+          if (!string.IsNullOrWhiteSpace(allText))
+          {
+            recognizedTexts.Add(allText);
+          }
+          else
+          {
+            recognizedTexts.Add("识别到的文本为空");
+          }
         }
         else
         {
@@ -213,141 +206,11 @@ namespace OcrApp.Engines
       var buffer = bytes.AsBuffer();
       await stream.ReadAsync(buffer, (uint)stream.Size, InputStreamOptions.None);
       return bytes;
-    }
-    private async Task<List<string>> GroupRegionsIntoParagraphs(List<PaddleOcrResultRegion> regions)
-    {
-      if (!regions.Any())
-        return new List<string> { "未识别到文本" };
-
-      var paragraphs = new List<string>();
-
-      System.Diagnostics.Debug.WriteLine($"段落分组参数:");
-      System.Diagnostics.Debug.WriteLine($"  垂直阈值倍数: {_verticalBreakThresholdMultiplier}");
-      System.Diagnostics.Debug.WriteLine($"  水平重合阈值: {_horizontalOverlapThreshold}");
-      System.Diagnostics.Debug.WriteLine($"  行高差异阈值倍数: {_heightDifferenceThresholdMultiplier}"); // 输出新参数
-
-      // 创建段落组
-      var paragraphGroups = new List<List<PaddleOcrResultRegion>>();
-
-      foreach (var region in regions)
-      {
-        bool addedToExistingGroup = false;
-
-        // 尝试将当前区域添加到现有段落组
-        foreach (var group in paragraphGroups)
-        {
-          // 检查是否可以与组中的任何区域合并
-          if (CanMergeWithGroup(region, group))
-          {
-            group.Add(region);
-            addedToExistingGroup = true;
-            System.Diagnostics.Debug.WriteLine($"区域 \"{region.Text}\" 添加到现有段落组");
-            break;
-          }
-        }
-
-        // 如果无法添加到现有组，创建新组
-        if (!addedToExistingGroup)
-        {
-          paragraphGroups.Add(new List<PaddleOcrResultRegion> { region });
-          System.Diagnostics.Debug.WriteLine($"区域 \"{region.Text}\" 创建新段落组");
-        }
-      }
-
-      // 将每个组转换为段落文本
-      foreach (var group in paragraphGroups)
-      {        // 使用基于角点的实际边界框进行排序
-        var sortedGroup = group
-          .OrderBy(r =>
-          {
-            var bounds = GetActualBounds(r);
-            return (bounds.Top + bounds.Bottom) / 2.0; // 使用实际的Y中心
-          })
-          .ThenBy(r =>
-          {
-            var bounds = GetActualBounds(r);
-            return (bounds.Left + bounds.Right) / 2.0; // 使用实际的X中心
-          })
-          .ToList();
-
-        var paragraphText = string.Join(" ", sortedGroup.Select(r => r.Text));
-        if (!string.IsNullOrWhiteSpace(paragraphText))
-        {
-          paragraphs.Add(paragraphText); // 直接添加原文，不再翻译
-        }
-      }
-
-      System.Diagnostics.Debug.WriteLine($"最终生成 {paragraphs.Count} 个段落");
-      return paragraphs.Any() ? paragraphs : new List<string> { "未能将文本组合成段落" };
     }    /// <summary>
-         /// 判断一个区域是否可以与现有段落组合并
+         /// 基于四个角点坐标计算实际的边界框信息
          /// </summary>
-    private bool CanMergeWithGroup(PaddleOcrResultRegion region, List<PaddleOcrResultRegion> group)
-    {
-      foreach (var groupRegion in group)
-      {        // 使用基于角点计算的实际高度作为垂直距离判断基准
-        double averageHeight = GetAverageHeight(region, groupRegion); // Calls GetActualBounds internally (cached)
-        double verticalThreshold = averageHeight * _verticalBreakThresholdMultiplier;
-
-        // 使用基于角点计算的垂直距离
-        double verticalGap = GetVerticalDistance(region, groupRegion); // Calls GetActualBounds internally (cached)
-        if (verticalGap > verticalThreshold)
-        {
-          System.Diagnostics.Debug.WriteLine($"区域 '{region.Text}' 与 '{groupRegion.Text}': 垂直距离 ({verticalGap:F1}) > 阈值 ({verticalThreshold:F1} 基于平均高度 {averageHeight:F1}). 跳过此配对.");
-          continue; // 垂直距离太远，检查下一个 groupRegion
-        }
-
-        // 新增：检查行高差异
-        var boundsRegion = GetActualBounds(region);
-        var boundsGroupRegion = GetActualBounds(groupRegion);
-        double heightRegion = boundsRegion.ActualHeight;
-        double heightGroupRegion = boundsGroupRegion.ActualHeight;
-
-        bool significantHeightDifference = false;
-        // 仅当两个高度都为正数时才进行比例比较
-        if (heightRegion > 0 && heightGroupRegion > 0)
-        {
-          double largerHeight = Math.Max(heightRegion, heightGroupRegion);
-          double smallerHeight = Math.Min(heightRegion, heightGroupRegion);
-          if (largerHeight > smallerHeight * _heightDifferenceThresholdMultiplier)
-          {
-            significantHeightDifference = true;
-          }
-        }
-        // 如果一个高度有效而另一个无效（0或负），也视为显著差异
-        else if ((heightRegion <= 0 && heightGroupRegion > 0) || (heightGroupRegion <= 0 && heightRegion > 0))
-        {
-          significantHeightDifference = true;
-        }
-        // 如果两个高度都无效 (<=0), significantHeightDifference 保持 false, 此检查不阻止合并
-
-        if (significantHeightDifference)
-        {
-          System.Diagnostics.Debug.WriteLine($"区域 '{region.Text}' (H:{heightRegion:F1}) 与 '{groupRegion.Text}' (H:{heightGroupRegion:F1}): 高度差异过大 (阈值倍数: {_heightDifferenceThresholdMultiplier}). 跳过此配对.");
-          continue; // 高度差异过大，检查下一个 groupRegion
-        }
-
-        // 检查水平重合度（使用新的基于角点的计算）
-        double horizontalOverlap = CalculateHorizontalOverlapByBounds(region, groupRegion); // Calls GetActualBounds internally (cached)
-        if (horizontalOverlap >= _horizontalOverlapThreshold)
-        {
-          System.Diagnostics.Debug.WriteLine($"区域可合并: '{region.Text}' 与 '{groupRegion.Text}'. 垂直距离={verticalGap:F1} (阈值 {verticalThreshold:F1}), 高度相似, 水平重合度={horizontalOverlap:F3} (阈值 {_horizontalOverlapThreshold:F3})");
-          return true; // Found a suitable region in the group to merge with
-        }
-        else
-        {
-          System.Diagnostics.Debug.WriteLine($"区域 '{region.Text}' 与 '{groupRegion.Text}': 水平重合度 ({horizontalOverlap:F3}) < 阈值 ({_horizontalOverlapThreshold:F3}). 跳过此配对.");
-          // Loop continues to the next groupRegion
-        }
-      }
-      return false; // No region in the group could be merged with
-    }
-
-    /// <summary>
-    /// 基于四个角点坐标计算实际的边界框信息
-    /// </summary>
-    /// <param name="region">OCR识别区域</param>
-    /// <returns>实际边界框信息：左，右，上，下，宽度，高度</returns>
+         /// <param name="region">OCR识别区域</param>
+         /// <returns>实际边界框信息：左，右，上，下，宽度，高度</returns>
     private (double Left, double Right, double Top, double Bottom, double ActualWidth, double ActualHeight) GetActualBounds(PaddleOcrResultRegion region)
     {
       // 检查缓存
@@ -405,123 +268,6 @@ namespace OcrApp.Engines
         _regionBoundsCache[region] = fallbackBounds;
         return fallbackBounds;
       }
-    }
-
-    /// <summary>
-    /// 基于实际边界框计算两个区域的平均高度
-    /// </summary>
-    private double GetAverageHeight(PaddleOcrResultRegion region1, PaddleOcrResultRegion region2)
-    {
-      var bounds1 = GetActualBounds(region1);
-      var bounds2 = GetActualBounds(region2);
-      return (bounds1.ActualHeight + bounds2.ActualHeight) / 2.0;
-    }
-
-    /// <summary>
-    /// 基于实际边界框计算两个区域的垂直距离
-    /// </summary>
-    private double GetVerticalDistance(PaddleOcrResultRegion region1, PaddleOcrResultRegion region2)
-    {
-      var bounds1 = GetActualBounds(region1);
-      var bounds2 = GetActualBounds(region2);
-
-      // 计算两个区域中心点的垂直距离
-      double center1Y = (bounds1.Top + bounds1.Bottom) / 2.0;
-      double center2Y = (bounds2.Top + bounds2.Bottom) / 2.0;
-
-      return Math.Abs(center1Y - center2Y);
-    }
-
-    /// <summary>
-    /// 计算两个矩形的水平重合度
-    /// </summary>
-    /// <param name="rect1">第一个矩形</param>
-    /// <param name="rect2">第二个矩形</param>
-    /// <returns>重合度，0.0表示不重合，1.0表示完全重合</returns>
-    private double CalculateHorizontalOverlap(RotatedRect rect1, RotatedRect rect2)
-    {
-      // 计算水平方向的边界
-      double left1 = rect1.Center.X - rect1.Size.Width / 2;
-      double right1 = rect1.Center.X + rect1.Size.Width / 2;
-      double left2 = rect2.Center.X - rect2.Size.Width / 2;
-      double right2 = rect2.Center.X + rect2.Size.Width / 2;
-
-      // 计算重合区间
-      double overlapStart = Math.Max(left1, left2);
-      double overlapEnd = Math.Min(right1, right2);
-      double overlapWidth = Math.Max(0, overlapEnd - overlapStart);
-
-      // 计算总宽度（两个矩形的并集宽度）
-      double totalWidth = Math.Max(right1, right2) - Math.Min(left1, left2);      // 返回重合度
-      return totalWidth > 0 ? overlapWidth / totalWidth : 0.0;
-    }    /// <summary>
-         /// 基于实际边界框计算两个区域的水平重合度
-         /// </summary>
-         /// <param name="region1">第一个区域</param>
-         /// <param name="region2">第二个区域</param>
-         /// <returns>重合度，0.0表示不重合，1.0表示完全重合</returns>
-    private double CalculateHorizontalOverlapByBounds(PaddleOcrResultRegion region1, PaddleOcrResultRegion region2)
-    {
-      var bounds1 = GetActualBounds(region1);
-      var bounds2 = GetActualBounds(region2);
-
-      // 计算重合区间
-      double overlapStart = Math.Max(bounds1.Left, bounds2.Left);
-      double overlapEnd = Math.Min(bounds1.Right, bounds2.Right);
-      double overlapWidth = Math.Max(0, overlapEnd - overlapStart);
-
-      if (overlapWidth <= 0)
-        return 0.0;
-
-      // 使用相对于较小区域的重合度，这样能更好地处理短行被长行包含的情况
-      double width1 = bounds1.ActualWidth;
-      double width2 = bounds2.ActualWidth;
-      double smallerWidth = Math.Min(width1, width2);
-
-      // 如果较小区域的重合比例超过阈值，则认为可以合并
-      // 这样即使短行只有长行的30%宽度，只要短行的大部分都与长行重合，就能归为同一段落
-      double overlapRatio = smallerWidth > 0 ? overlapWidth / smallerWidth : 0.0;
-
-      System.Diagnostics.Debug.WriteLine($"水平重合度计算: 区域1宽度={width1:F1}, 区域2宽度={width2:F1}, 重合宽度={overlapWidth:F1}, 较小宽度={smallerWidth:F1}, 重合比例={overlapRatio:F3}");
-
-      return overlapRatio;
-    }
-
-    /// <summary>
-    /// 设置段落分组算法参数，用于调试和优化
-    /// </summary>
-    /// <param name="verticalMultiplier">垂直方向阈值倍数</param>
-    /// <param name="horizontalOverlapThreshold">水平重合度阈值</param>
-    /// <param name="confidenceThreshold">置信度阈值</param>
-    public void SetParagraphGroupingParameters(
-      double verticalMultiplier = 1.5,
-      double horizontalOverlapThreshold = 0.3,
-      double confidenceThreshold = 0.9,
-      double heightDifferenceMultiplier = 1.5) // 新增参数及默认值
-    {
-      _verticalBreakThresholdMultiplier = verticalMultiplier;
-      _horizontalOverlapThreshold = horizontalOverlapThreshold;
-      _confidenceThreshold = confidenceThreshold;
-      _heightDifferenceThresholdMultiplier = heightDifferenceMultiplier; // 赋值新参数
-
-      System.Diagnostics.Debug.WriteLine("段落分组参数已更新:");
-      System.Diagnostics.Debug.WriteLine($"  垂直阈值倍数: {_verticalBreakThresholdMultiplier}");
-      System.Diagnostics.Debug.WriteLine($"  水平重合度阈值: {_horizontalOverlapThreshold}");
-      System.Diagnostics.Debug.WriteLine($"  置信度阈值: {_confidenceThreshold}");
-      System.Diagnostics.Debug.WriteLine($"  行高差异阈值倍数: {_heightDifferenceThresholdMultiplier}"); // 输出新参数
-    }
-
-    /// <summary>
-    /// 获取当前段落分组算法参数
-    /// </summary>
-    /// <returns>参数信息字符串</returns>
-    public string GetParagraphGroupingParameters()
-    {
-      return $"段落分组参数:\n" +
-             $"  垂直阈值倍数: {_verticalBreakThresholdMultiplier}\n" +
-             $"  水平重合度阈值: {_horizontalOverlapThreshold}\n" +
-             $"  置信度阈值: {_confidenceThreshold}\n" +
-             $"  行高差异阈值倍数: {_heightDifferenceThresholdMultiplier}"; // 添加新参数到返回字符串
     }
     public void Dispose()
     {
