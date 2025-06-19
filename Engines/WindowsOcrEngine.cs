@@ -153,8 +153,7 @@ namespace OcrApp.Engines
         var paragraphText = string.Join(" ", sortedGroup.Select(l => l.Line.Text));
         if (!string.IsNullOrWhiteSpace(paragraphText))
         {
-          var translatedText = await TranslateParagraphAsync(paragraphText);
-          paragraphs.Add(translatedText);
+          paragraphs.Add(paragraphText); // 直接添加原文，不再翻译
         }
       }
       return paragraphs.Any() ? paragraphs : new List<string> { "未能将文本组合成段落" };
@@ -296,42 +295,6 @@ namespace OcrApp.Engines
         return 0;
       }
       return validWords.Average(word => word.BoundingRect.Height);
-    }
-    private async Task<string> TranslateParagraphAsync(string paragraph)
-    {
-      // 暂时不进行翻译，直接返回原文
-      return await Task.FromResult(paragraph);
-      /*
-      // 以下代码保留用于将来的翻译功能
-      if (string.IsNullOrWhiteSpace(paragraph))
-      {
-        return paragraph;
-      }
-      string[] words = paragraph.Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
-      if (words.Length > 3)
-      {
-        try
-        {
-          string translatedText = await GoogleTranslator.TranslateEnglishToChineseAsync(paragraph);
-          if (!string.IsNullOrWhiteSpace(translatedText) && !translatedText.StartsWith("Error:"))
-          {
-            return translatedText;
-          }
-          else if (translatedText.StartsWith("Error:"))
-          {
-            Console.WriteLine($"GoogleTranslator returned an error for paragraph: '{paragraph}'. Error: {translatedText}");
-            return paragraph;
-          }
-          return paragraph;
-        }
-        catch (Exception ex)
-        {
-          Console.Error.WriteLine($"Exception during paragraph translation for '{paragraph}': {ex.Message}");
-          return paragraph;
-        }
-      }
-      return paragraph;
-      */
     }
   }
 }

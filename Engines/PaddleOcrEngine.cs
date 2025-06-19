@@ -273,8 +273,7 @@ namespace OcrApp.Engines
         var paragraphText = string.Join(" ", sortedGroup.Select(r => r.Text));
         if (!string.IsNullOrWhiteSpace(paragraphText))
         {
-          var translatedText = await TranslateParagraphAsync(paragraphText);
-          paragraphs.Add(translatedText);
+          paragraphs.Add(paragraphText); // 直接添加原文，不再翻译
         }
       }
 
@@ -488,40 +487,12 @@ namespace OcrApp.Engines
       return overlapRatio;
     }
 
-    private async Task<string> TranslateParagraphAsync(string paragraph)
-    {
-      // 暂时不进行翻译，直接返回原文
-      return await Task.FromResult(paragraph);
-      /*
-      if (string.IsNullOrWhiteSpace(paragraph))
-        return paragraph;
-      string[] words = paragraph.Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
-      if (words.Length > 3)
-      {
-        try
-        {
-          var translatedText = await GoogleTranslator.TranslateEnglishToChineseAsync(paragraph);
-          if (!string.IsNullOrWhiteSpace(translatedText) && !translatedText.StartsWith("Error:"))
-          {
-            return translatedText;
-          }
-          else if (translatedText.StartsWith("Error:"))
-          {
-            System.Diagnostics.Debug.WriteLine($"翻译错误: {translatedText}");
-          }
-        }
-        catch (Exception ex)
-        {
-          System.Diagnostics.Debug.WriteLine($"翻译异常: {ex.Message}");
-        }
-      }      return paragraph;
-      */
-    }    /// <summary>
-         /// 设置段落分组算法参数，用于调试和优化
-         /// </summary>
-         /// <param name="verticalMultiplier">垂直方向阈值倍数</param>
-         /// <param name="horizontalOverlapThreshold">水平重合度阈值</param>
-         /// <param name="confidenceThreshold">置信度阈值</param>
+    /// <summary>
+    /// 设置段落分组算法参数，用于调试和优化
+    /// </summary>
+    /// <param name="verticalMultiplier">垂直方向阈值倍数</param>
+    /// <param name="horizontalOverlapThreshold">水平重合度阈值</param>
+    /// <param name="confidenceThreshold">置信度阈值</param>
     public void SetParagraphGroupingParameters(
       double verticalMultiplier = 1.5,
       double horizontalOverlapThreshold = 0.3,
