@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.WindowsRuntime;
+using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.Graphics.Capture;
@@ -24,6 +25,11 @@ namespace OcrApp
         // 添加区域选择相关变量
         private Windows.Graphics.RectInt32? _selectedRegion;
         private bool _useSelectedRegion;
+
+        // 添加长时间维持的CaptureSession相关变量
+        private Direct3D11CaptureFramePool? _framePool;
+        private GraphicsCaptureSession? _captureSession;
+        private IDirect3DDevice? _d3dDevice;
 
         // 添加快捷键和触发延迟相关变量
         private int _triggerHotkeyCode = 0x20; // 默认空格键 (VK_SPACE = 0x20)
@@ -72,11 +78,16 @@ namespace OcrApp
             _hookID = SetHook(_proc);
             this.Closed += MainWindow_Closed;
         }
-
         private void MainWindow_Closed(object sender, WindowEventArgs args)
         {
             UnhookWindowsHookEx(_hookID);
             _triggerDelayTimer?.Dispose();
+
+            // 清理长时间维持的CaptureSession和相关资源
+            _captureSession?.Dispose();
+            _framePool?.Dispose();
+            _lastCapturedBitmap?.Dispose();
+            _d3dDevice = null;
         }
 
         private static IntPtr SetHook(LowLevelKeyboardProc proc)
@@ -194,17 +205,28 @@ namespace OcrApp
             var picker = new GraphicsCapturePicker();
             var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
             WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
-            _captureItem = await picker.PickSingleItemAsync(); if (_captureItem != null)
+            _captureItem = await picker.PickSingleItemAsync();
+
+            if (_captureItem != null)
             {
                 ResultListView.ItemsSource = new List<string> { $"已选择: {_captureItem.DisplayName}" };
                 RecognizeButton.IsEnabled = true;
                 SelectRegionButton.IsEnabled = true; // 启用区域选择按钮
+
+                // 创建持久化的捕获会话
+                CreatePersistentCaptureSession();
             }
             else
             {
                 ResultListView.ItemsSource = new List<string> { "未选择捕获源" };
                 RecognizeButton.IsEnabled = false;
                 SelectRegionButton.IsEnabled = false; // 禁用区域选择按钮
+
+                // 清理捕获会话
+                _captureSession?.Dispose();
+                _framePool?.Dispose();
+                _captureSession = null;
+                _framePool = null;
             }
         }
         private async void RecognizeButton_Click(object sender, RoutedEventArgs e)
@@ -219,55 +241,35 @@ namespace OcrApp
                 ResultListView.ItemsSource = new List<string> { "OCR引擎未初始化" };
                 return;
             }
-            try
+
+            // 如果持久化会话不存在，尝试重新创建
+            if (_framePool == null || _captureSession == null)
             {
-                // 用 Win2D 获取 Direct3D 设备
-                var canvasDevice = CanvasDevice.GetSharedDevice();
-                if (canvasDevice is not IDirect3DDevice d3dDevice)
+                CreatePersistentCaptureSession();
+                if (_framePool == null || _captureSession == null)
                 {
-                    ResultListView.ItemsSource = new List<string> { "无法获取 Direct3D 设备" };
+                    ResultListView.ItemsSource = new List<string> { "捕获会话创建失败" };
                     return;
                 }
-
-                var framePool = Direct3D11CaptureFramePool.Create(
-                            d3dDevice,
-                            DirectXPixelFormat.B8G8R8A8UIntNormalized,
-                            1,
-                            _captureItem.Size);
-                var session = framePool.CreateCaptureSession(_captureItem);
-                try
-                {
-                    // 尝试禁用鼠标光标捕获(可能在某些Windows版本上不可用)
-                    // 此问题不需要解决
-                    session.IsCursorCaptureEnabled = false;
-                }
-                catch
-                {
-                    // 忽略不支持此属性的平台错误
-                }
-                session.StartCapture();
-                await System.Threading.Tasks.Task.Delay(100); // 等待捕获开始
-
-                var capturedFrame = framePool.TryGetNextFrame();
-                if (capturedFrame == null)
-                {
-                    await System.Threading.Tasks.Task.Delay(500); // 重试
-                    capturedFrame = framePool.TryGetNextFrame();
-                }
-
+            }
+            try
+            {
+                // 获取最新的捕获帧
+                var capturedFrame = await GetLatestFrameAsync();
                 if (capturedFrame == null)
                 {
                     ResultListView.ItemsSource = new List<string> { "捕获失败：无法获取帧" };
-                    session.Dispose();
-                    framePool.Dispose();
                     return;
                 }
 
                 // 清理上一次的位图资源
                 _lastCapturedBitmap?.Dispose();
-                _lastCapturedBitmap = null; try
+                _lastCapturedBitmap = null;
+
+                try
                 {
-                    using var canvasBitmap = CanvasBitmap.CreateFromDirect3D11Surface(canvasDevice, capturedFrame.Surface);
+                    using var canvasBitmap = CanvasBitmap.CreateFromDirect3D11Surface(
+                        CanvasDevice.GetSharedDevice(), capturedFrame.Surface);
                     var pixelBytes = canvasBitmap.GetPixelBytes();
                     SoftwareBitmap fullBitmap = new SoftwareBitmap(
                         BitmapPixelFormat.Bgra8,
@@ -343,15 +345,11 @@ namespace OcrApp
                 {
                     ResultListView.ItemsSource = new List<string> { $"转换位图失败: {ex.Message}" };
                     capturedFrame.Dispose();
-                    session.Dispose();
-                    framePool.Dispose();
                     return;
                 }
                 finally
                 {
                     capturedFrame.Dispose(); // 确保 capturedFrame 被释放
-                    session.Dispose();
-                    framePool.Dispose();
                 }
 
                 if (_lastCapturedBitmap == null)
@@ -359,6 +357,7 @@ namespace OcrApp
                     ResultListView.ItemsSource = new List<string> { "位图转换失败" };
                     return;
                 }
+
                 // 统一通过接口调用OCR
                 string statusMessage;
                 if (_currentEngineType == "Paddle")
@@ -408,6 +407,10 @@ namespace OcrApp
                 ResultListView.ItemsSource = new List<string> { $"发生错误: {ex.Message}" };
                 EngineStatusText.Text = "OCR失败";
                 EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Red);
+
+                // 如果出现错误，可能是会话失效，尝试重新创建
+                UpdateDebugInfo($"OCR过程中出现错误，尝试重新创建捕获会话: {ex.Message}");
+                CreatePersistentCaptureSession();
             }
         }
         private void ResultListView_ItemClick(object sender, ItemClickEventArgs e)
@@ -448,7 +451,6 @@ namespace OcrApp
                 ToggleTranslationOverlayButton.Content = "翻译窗口";
             }
         }
-
         private async void SelectRegionButton_Click(object sender, RoutedEventArgs e)
         {
             if (_captureItem == null)
@@ -457,53 +459,31 @@ namespace OcrApp
                 return;
             }
 
-            try
+            // 如果持久化会话不存在，尝试重新创建
+            if (_framePool == null || _captureSession == null)
             {
-                // 先捕获一次当前窗口的图像用于区域选择
-                var canvasDevice = CanvasDevice.GetSharedDevice();
-                if (canvasDevice is not IDirect3DDevice d3dDevice)
+                CreatePersistentCaptureSession();
+                if (_framePool == null || _captureSession == null)
                 {
-                    ResultListView.ItemsSource = new List<string> { "无法获取 Direct3D 设备" };
+                    ResultListView.ItemsSource = new List<string> { "捕获会话创建失败" };
                     return;
                 }
-
-                var framePool = Direct3D11CaptureFramePool.Create(
-                            d3dDevice,
-                            DirectXPixelFormat.B8G8R8A8UIntNormalized,
-                            1,
-                            _captureItem.Size);
-                var session = framePool.CreateCaptureSession(_captureItem);
-                try
-                {
-                    // 尝试禁用鼠标光标捕获(可能在某些Windows版本上不可用)
-                    // 此问题不需要解决
-                    session.IsCursorCaptureEnabled = false;
-                }
-                catch
-                {
-                    // 忽略不支持此属性的平台错误
-                }
-                session.StartCapture();
-                await System.Threading.Tasks.Task.Delay(100); // 等待捕获开始
-
-                var capturedFrame = framePool.TryGetNextFrame();
-                if (capturedFrame == null)
-                {
-                    await System.Threading.Tasks.Task.Delay(500); // 重试
-                    capturedFrame = framePool.TryGetNextFrame();
-                }
-
+            }
+            try
+            {
+                // 获取最新的捕获帧
+                var capturedFrame = await GetLatestFrameAsync();
                 if (capturedFrame == null)
                 {
                     ResultListView.ItemsSource = new List<string> { "捕获失败：无法获取帧" };
-                    session.Dispose();
-                    framePool.Dispose();
                     return;
                 }
+
                 SoftwareBitmap? previewBitmap = null;
                 try
                 {
-                    using var canvasBitmap = CanvasBitmap.CreateFromDirect3D11Surface(canvasDevice, capturedFrame.Surface);
+                    using var canvasBitmap = CanvasBitmap.CreateFromDirect3D11Surface(
+                        CanvasDevice.GetSharedDevice(), capturedFrame.Surface);
                     var pixelBytes = canvasBitmap.GetPixelBytes();
                     previewBitmap = new SoftwareBitmap(
                         BitmapPixelFormat.Bgra8,
@@ -516,15 +496,11 @@ namespace OcrApp
                 {
                     ResultListView.ItemsSource = new List<string> { $"转换位图失败: {ex.Message}" };
                     capturedFrame.Dispose();
-                    session.Dispose();
-                    framePool.Dispose();
                     return;
                 }
                 finally
                 {
                     capturedFrame.Dispose(); // 确保 capturedFrame 被释放
-                    session.Dispose();
-                    framePool.Dispose();
                 }
 
                 if (previewBitmap == null)
@@ -558,13 +534,17 @@ namespace OcrApp
                             ResultListView.ItemsSource = new List<string> { "未设置识别区域，将识别整个窗口" };
                         });
                     }
-                };                // 显示区域选择窗口
-                // 不使用Initialize方法，直接激活窗口
+                };
+
+                // 显示区域选择窗口
                 regionSelector.Activate();
             }
             catch (Exception ex)
             {
                 ResultListView.ItemsSource = new List<string> { $"设置识别区域时出错: {ex.Message}" };
+                // 如果出现错误，可能是会话失效，尝试重新创建
+                UpdateDebugInfo($"设置识别区域时出现错误，尝试重新创建捕获会话: {ex.Message}");
+                CreatePersistentCaptureSession();
             }
         }
 
@@ -636,6 +616,99 @@ namespace OcrApp
             {
                 DelayValueText.Text = $"{_triggerDelayMs}ms";
             }
+        }
+
+        private void CreatePersistentCaptureSession()
+        {
+            if (_captureItem == null) return;
+
+            try
+            {
+                // 清理之前的会话
+                _captureSession?.Dispose();
+                _framePool?.Dispose();
+
+                // 获取 Direct3D 设备
+                var canvasDevice = CanvasDevice.GetSharedDevice();
+                if (canvasDevice is not IDirect3DDevice d3dDevice)
+                {
+                    UpdateDebugInfo("无法获取 Direct3D 设备");
+                    return;
+                }
+
+                _d3dDevice = d3dDevice;                // 创建帧池和会话
+                _framePool = Direct3D11CaptureFramePool.Create(
+                    d3dDevice,
+                    DirectXPixelFormat.B8G8R8A8UIntNormalized,
+                    1, // 使用单个缓冲区，减少旧帧缓存
+                    _captureItem.Size);
+
+                _captureSession = _framePool.CreateCaptureSession(_captureItem);
+
+                try
+                {
+                    // 尝试禁用鼠标光标捕获(可能在某些Windows版本上不可用)
+                    _captureSession.IsCursorCaptureEnabled = false;
+                }
+                catch
+                {
+                    // 忽略不支持此属性的平台错误
+                }
+
+                // 启动捕获会话
+                _captureSession.StartCapture();
+                UpdateDebugInfo("已创建持久化捕获会话");
+            }
+            catch (Exception ex)
+            {
+                UpdateDebugInfo($"创建持久化捕获会话失败: {ex.Message}");
+                // 清理失败的资源
+                _captureSession?.Dispose();
+                _framePool?.Dispose();
+                _captureSession = null;
+                _framePool = null;
+            }
+        }
+
+        /// <summary>
+        /// 获取最新的捕获帧，清空旧帧缓存
+        /// </summary>
+        /// <returns>最新的捕获帧，如果获取失败返回null</returns>
+        private async Task<Direct3D11CaptureFrame?> GetLatestFrameAsync()
+        {
+            if (_framePool == null)
+                return null;
+
+            // 先清空帧池中的旧帧
+            Direct3D11CaptureFrame? oldFrame;
+            while ((oldFrame = _framePool.TryGetNextFrame()) != null)
+            {
+                oldFrame.Dispose(); // 释放旧帧
+            }
+
+            // 等待新帧生成
+            await System.Threading.Tasks.Task.Delay(50);
+
+            // 尝试获取最新帧
+            var capturedFrame = _framePool.TryGetNextFrame();
+            if (capturedFrame == null)
+            {
+                await System.Threading.Tasks.Task.Delay(100); // 再等待一下
+                capturedFrame = _framePool.TryGetNextFrame();
+            }
+
+            // 如果还是获取不到，尝试重新创建会话
+            if (capturedFrame == null)
+            {
+                UpdateDebugInfo("获取帧失败，重新创建捕获会话");
+                CreatePersistentCaptureSession();
+                await System.Threading.Tasks.Task.Delay(200); // 等待会话启动
+
+                // 再次尝试获取帧
+                capturedFrame = _framePool?.TryGetNextFrame();
+            }
+
+            return capturedFrame;
         }
     }
 }
