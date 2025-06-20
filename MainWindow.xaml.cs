@@ -511,18 +511,28 @@ namespace OcrApp
 
                 // 创建区域选择窗口
                 var regionSelector = new RegionSelector();
-                regionSelector.SetCapturedBitmap(previewBitmap);
-
-                // 订阅区域选择完成事件
+                regionSelector.SetCapturedBitmap(previewBitmap);                // 订阅区域选择完成事件
                 regionSelector.SelectionConfirmed += (sender, region) =>
                 {
                     if (region != null)
                     {
                         _selectedRegion = region;
                         _useSelectedRegion = true;
-                        DispatcherQueue.TryEnqueue(() =>
+                        DispatcherQueue.TryEnqueue(async () =>
                         {
                             ResultListView.ItemsSource = new List<string> { $"已设置识别区域: X={region.Value.X}, Y={region.Value.Y}, 宽={region.Value.Width}, 高={region.Value.Height}" };
+
+                            // 自动打开翻译窗口（如果还没有打开）
+                            if (_translationOverlay == null)
+                            {
+                                ToggleTranslationOverlayButton_Click(ToggleTranslationOverlayButton, new RoutedEventArgs());
+                            }
+
+                            // 等待一小段时间确保翻译窗口初始化完成
+                            await Task.Delay(100);
+
+                            // 自动执行识别
+                            RecognizeButton_Click(RecognizeButton, new RoutedEventArgs());
                         });
                     }
                     else
