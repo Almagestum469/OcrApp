@@ -32,7 +32,8 @@ namespace OcrApp
         private IDirect3DDevice? _d3dDevice;
 
         // 全局快捷键管理器
-        private GlobalHotkeyManager? _hotkeyManager; public MainWindow()
+        private GlobalHotkeyManager? _hotkeyManager;
+        public MainWindow()
         {
             InitializeComponent();
             OcrEngineComboBox.SelectionChanged += OcrEngineComboBox_SelectionChanged;
