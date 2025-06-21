@@ -28,7 +28,6 @@ namespace OcrApp
         private bool _useSelectedRegion;        // 添加长时间维持的CaptureSession相关变量
         private Direct3D11CaptureFramePool? _framePool;
         private GraphicsCaptureSession? _captureSession;
-        private IDirect3DDevice? _d3dDevice;
 
         // 事件驱动的帧获取相关变量
         private TaskCompletionSource<Direct3D11CaptureFrame?>? _frameCompletionSource;
@@ -93,13 +92,10 @@ namespace OcrApp
         }
         private void MainWindow_Closed(object sender, WindowEventArgs args)
         {
-            _hotkeyManager?.Dispose();
-
-            // 清理长时间维持的CaptureSession和相关资源
+            _hotkeyManager?.Dispose();            // 清理长时间维持的CaptureSession和相关资源
             _captureSession?.Dispose();
             _framePool?.Dispose();
             _lastCapturedBitmap?.Dispose();
-            _d3dDevice = null;
         }
         private void SetDefaultOcrEngineSelection()
         {
@@ -463,7 +459,7 @@ namespace OcrApp
                     return;
                 }
 
-                _d3dDevice = d3dDevice;                // 创建帧池和会话
+                // 创建帧池和会话
                 _framePool = Direct3D11CaptureFramePool.Create(
                     d3dDevice,
                     DirectXPixelFormat.B8G8R8A8UIntNormalized,
