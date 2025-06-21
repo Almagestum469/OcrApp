@@ -19,9 +19,10 @@ namespace OcrApp
     {
         private GraphicsCaptureItem? _captureItem;
         private SoftwareBitmap? _lastCapturedBitmap;
-        private IOcrEngine? _ocrEngine; // 统一接口
+        private IOcrEngine? _ocrEngine;
         private string _currentEngineType = "Paddle";
         private TranslationOverlay? _translationOverlay;
+        
         // 添加区域选择相关变量
         private Windows.Graphics.RectInt32? _selectedRegion;
         private bool _useSelectedRegion;

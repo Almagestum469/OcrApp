@@ -28,6 +28,9 @@ namespace OcrApp.Engines
     /// </summary>
     private double _confidenceThreshold = 0.90;
 
+    // 记录最近一次识别耗时（毫秒）
+    private long _lastElapsedMs = 0;
+
     public Task<bool> InitializeAsync()
     {
       try
@@ -66,8 +69,11 @@ namespace OcrApp.Engines
         _regionBoundsCache.Clear();
 
         var imageBytes = await ConvertSoftwareBitmapToBytesAsync(bitmap);
+        var sw = System.Diagnostics.Stopwatch.StartNew();
         using var mat = Cv2.ImDecode(imageBytes, ImreadModes.Color);
         var result = _paddleOcrEngine!.Run(mat);
+        sw.Stop();
+        _lastElapsedMs = sw.ElapsedMilliseconds;
         _lastOcrResult = result; var recognizedTexts = new List<string>();
 
         if (result.Regions != null && result.Regions.Any())
@@ -200,6 +206,7 @@ namespace OcrApp.Engines
       {
         debugInfo.AppendLine("未检测到满足置信度要求的文本区域");
       }
+      debugInfo.AppendLine($"本次识别耗时: {_lastElapsedMs} ms");
       debugInfo.AppendLine("=== 调试信息结束 ===");
       return debugInfo.ToString();
     }
