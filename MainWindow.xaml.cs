@@ -24,12 +24,13 @@ namespace OcrApp
 
         // 添加区域选择相关变量
         private Windows.Graphics.RectInt32? _selectedRegion;
-        private bool _useSelectedRegion;
-
-        // 添加长时间维持的CaptureSession相关变量
+        private bool _useSelectedRegion;        // 添加长时间维持的CaptureSession相关变量
         private Direct3D11CaptureFramePool? _framePool;
         private GraphicsCaptureSession? _captureSession;
         private IDirect3DDevice? _d3dDevice;
+
+        // 事件驱动的帧获取相关变量
+        private TaskCompletionSource<Direct3D11CaptureFrame?>? _frameCompletionSource;
 
         // 全局快捷键管理器
         private GlobalHotkeyManager? _hotkeyManager;
@@ -552,7 +553,6 @@ namespace OcrApp
                 }
             }
         }
-
         private void CreatePersistentCaptureSession()
         {
             if (_captureItem == null) return;
@@ -575,8 +575,11 @@ namespace OcrApp
                 _framePool = Direct3D11CaptureFramePool.Create(
                     d3dDevice,
                     DirectXPixelFormat.B8G8R8A8UIntNormalized,
-                    1, // 使用单个缓冲区，减少旧帧缓存
+                    1,
                     _captureItem.Size);
+
+                // 订阅帧到达事件
+                _framePool.FrameArrived += OnFrameArrived;
 
                 _captureSession = _framePool.CreateCaptureSession(_captureItem);
 
@@ -592,7 +595,7 @@ namespace OcrApp
 
                 // 启动捕获会话
                 _captureSession.StartCapture();
-                UpdateDebugInfo("已创建持久化捕获会话");
+                UpdateDebugInfo("已创建持久化捕获会话（事件驱动模式）");
             }
             catch (Exception ex)
             {
@@ -603,47 +606,71 @@ namespace OcrApp
                 _captureSession = null;
                 _framePool = null;
             }
-        }
-
-        /// <summary>
-        /// 获取最新的捕获帧，清空旧帧缓存
-        /// </summary>
-        /// <returns>最新的捕获帧，如果获取失败返回null</returns>
+        }        /// <summary>
+                 /// 获取最新的捕获帧，使用事件驱动模式
+                 /// </summary>
+                 /// <returns>最新的捕获帧，如果获取失败返回null</returns>
         private async Task<Direct3D11CaptureFrame?> GetLatestFrameAsync()
         {
             if (_framePool == null)
                 return null;
 
-            // 先清空帧池中的旧帧
-            Direct3D11CaptureFrame? oldFrame;
-            while ((oldFrame = _framePool.TryGetNextFrame()) != null)
+            // 先清空帧池中的旧帧，保留最新的
+            Direct3D11CaptureFrame? latestFrame = null;
+            Direct3D11CaptureFrame? currentFrame;
+
+            while ((currentFrame = _framePool.TryGetNextFrame()) != null)
             {
-                oldFrame.Dispose(); // 释放旧帧
+                latestFrame?.Dispose(); // 释放之前的帧
+                latestFrame = currentFrame; // 保留当前帧作为最新帧
             }
 
-            // 等待新帧生成
-            await System.Threading.Tasks.Task.Delay(50);
-
-            // 尝试获取最新帧
-            var capturedFrame = _framePool.TryGetNextFrame();
-            if (capturedFrame == null)
+            // 如果有立即可用的帧，直接返回
+            if (latestFrame != null)
             {
-                await System.Threading.Tasks.Task.Delay(100); // 再等待一下
-                capturedFrame = _framePool.TryGetNextFrame();
+                return latestFrame;
             }
 
-            // 如果还是获取不到，尝试重新创建会话
-            if (capturedFrame == null)
+            // 如果没有立即可用的帧，等待下一个帧事件
+            _frameCompletionSource = new TaskCompletionSource<Direct3D11CaptureFrame?>();
+
+            // 设置超时保护
+            var timeoutTask = Task.Delay(1000); // 1秒超时
+            var completedTask = await Task.WhenAny(_frameCompletionSource.Task, timeoutTask);
+
+            if (completedTask == timeoutTask)
             {
-                UpdateDebugInfo("获取帧失败，重新创建捕获会话");
+                _frameCompletionSource = null;
+                UpdateDebugInfo("获取帧超时，尝试重新创建捕获会话");
                 CreatePersistentCaptureSession();
-                await System.Threading.Tasks.Task.Delay(200); // 等待会话启动
+                await Task.Delay(200); // 等待会话启动
 
-                // 再次尝试获取帧
-                capturedFrame = _framePool?.TryGetNextFrame();
+                // 最后一次尝试
+                return _framePool?.TryGetNextFrame();
             }
 
-            return capturedFrame;
+            return await _frameCompletionSource.Task;
+        }        /// <summary>
+                 /// 帧到达事件处理器
+                 /// </summary>
+        private void OnFrameArrived(Direct3D11CaptureFramePool sender, object args)
+        {
+            // 如果有等待中的请求，立即满足它
+            if (_frameCompletionSource != null)
+            {
+                var frame = sender.TryGetNextFrame();
+                _frameCompletionSource.SetResult(frame);
+                _frameCompletionSource = null;
+            }
+            else
+            {
+                // 如果没有等待请求，清空帧池避免积累旧帧
+                Direct3D11CaptureFrame? frame;
+                while ((frame = sender.TryGetNextFrame()) != null)
+                {
+                    frame.Dispose(); // 释放不需要的帧
+                }
+            }
         }
     }
 }
