@@ -20,7 +20,8 @@ namespace OcrApp
         private GraphicsCaptureItem? _captureItem;
         private SoftwareBitmap? _lastCapturedBitmap;
         private IOcrEngine? _ocrEngine;
-        private string _currentEngineType = "Paddle"; private TranslationOverlay? _translationOverlay;
+        private string _currentEngineType = "Paddle";
+        private TranslationOverlay? _translationOverlay;
 
         // 添加区域选择相关变量
         private Windows.Graphics.RectInt32? _selectedRegion;
@@ -216,81 +217,25 @@ namespace OcrApp
 
                 // 清理上一次的位图资源
                 _lastCapturedBitmap?.Dispose();
-                _lastCapturedBitmap = null;
-
-                try
+                _lastCapturedBitmap = null; try
                 {
-                    using var canvasBitmap = CanvasBitmap.CreateFromDirect3D11Surface(
-                        CanvasDevice.GetSharedDevice(), capturedFrame.Surface);
-                    var pixelBytes = canvasBitmap.GetPixelBytes();
-                    SoftwareBitmap fullBitmap = new SoftwareBitmap(
-                        BitmapPixelFormat.Bgra8,
-                        (int)canvasBitmap.SizeInPixels.Width,
-                        (int)canvasBitmap.SizeInPixels.Height,
-                        BitmapAlphaMode.Premultiplied);
-                    fullBitmap.CopyFromBuffer(pixelBytes.AsBuffer());
-
-                    // 如果有选择区域，裁剪图像
-                    if (_useSelectedRegion && _selectedRegion.HasValue)
+                    _lastCapturedBitmap = ConvertFrameToBitmap(capturedFrame); if (_lastCapturedBitmap != null && _useSelectedRegion && _selectedRegion.HasValue)
                     {
                         var region = _selectedRegion.Value;
                         // 确保区域有效
                         if (region.Width > 0 && region.Height > 0 &&
                             region.X >= 0 && region.Y >= 0 &&
-                            region.X + region.Width <= fullBitmap.PixelWidth &&
-                            region.Y + region.Height <= fullBitmap.PixelHeight)
+                            region.X + region.Width <= _lastCapturedBitmap.PixelWidth &&
+                            region.Y + region.Height <= _lastCapturedBitmap.PixelHeight)
                         {
                             // 裁剪图像
-                            _lastCapturedBitmap = new SoftwareBitmap(
-                                fullBitmap.BitmapPixelFormat,
-                                region.Width,
-                                region.Height,
-                                fullBitmap.BitmapAlphaMode);
-                            // 使用BitmapTransform暂时不支持直接裁剪，我们将通过像素复制来实现
-                            // 创建临时共享空间
-                            var sourceBuffer = new Windows.Storage.Streams.Buffer((uint)(fullBitmap.PixelWidth * fullBitmap.PixelHeight * 4));
-                            var destBuffer = new Windows.Storage.Streams.Buffer((uint)(region.Width * region.Height * 4));
-
-                            // 将全图复制到缓冲区
-                            fullBitmap.CopyToBuffer(sourceBuffer);
-
-                            // 创建裁剪后图像的编码器
-                            using var ms = new InMemoryRandomAccessStream();
-                            var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, ms);
-
-                            // 设置裁剪参数
-                            encoder.SetSoftwareBitmap(fullBitmap);
-                            encoder.BitmapTransform.Bounds = new Windows.Graphics.Imaging.BitmapBounds
-                            {
-                                X = (uint)region.X,
-                                Y = (uint)region.Y,
-                                Width = (uint)region.Width,
-                                Height = (uint)region.Height
-                            };
-
-                            // 执行裁剪
-                            await encoder.FlushAsync();
-
-                            // 解码裁剪后的图像
-                            ms.Seek(0);
-                            var decoder = await BitmapDecoder.CreateAsync(ms);
-                            var cropped = await decoder.GetSoftwareBitmapAsync();
-
-                            // 保存裁剪结果
-                            _lastCapturedBitmap = cropped;
-                            UpdateDebugInfo($"已应用区域裁剪: X={region.X}, Y={region.Y}, 宽={region.Width}, 高={region.Height}");
+                            _lastCapturedBitmap = await CropBitmapAsync(_lastCapturedBitmap, region);
                         }
                         else
                         {
                             // 区域无效，使用全图
-                            _lastCapturedBitmap = fullBitmap;
                             UpdateDebugInfo("选定区域无效，使用全图");
                         }
-                    }
-                    else
-                    {
-                        // 无选择区域，使用全图
-                        _lastCapturedBitmap = fullBitmap;
                     }
                 }
                 catch (Exception ex)
@@ -308,59 +253,14 @@ namespace OcrApp
                 {
                     ResultListView.ItemsSource = new List<string> { "位图转换失败" };
                     return;
-                }
-
-                // 统一通过接口调用OCR
-                string statusMessage;
-                if (_currentEngineType == "Paddle")
-                {
-                    statusMessage = "PaddleOCR识别中...";
-                    EngineStatusText.Text = statusMessage;
-                    EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Orange);
-                    UpdateDebugInfo("开始使用PaddleOCR识别...");
-
-                    // 同步状态到翻译窗口
-                    if (_translationOverlay != null)
-                    {
-                        _translationOverlay.UpdateRecognitionStatus(statusMessage);
-                    }
-                }
-                else
-                {
-                    statusMessage = "Windows OCR识别中...";
-                    EngineStatusText.Text = statusMessage;
-                    EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Orange);
-                    UpdateDebugInfo("开始使用Windows OCR识别...");
-
-                    // 同步状态到翻译窗口
-                    if (_translationOverlay != null)
-                    {
-                        _translationOverlay.UpdateRecognitionStatus(statusMessage);
-                    }
-                }
-
-                var results = await _ocrEngine.RecognizeAsync(_lastCapturedBitmap);
-                var debugInfo = _ocrEngine.GenerateDebugInfo();
-                UpdateDebugInfo(debugInfo);
-
-                statusMessage = _currentEngineType == "Paddle" ? "PaddleOCR就绪" : "Windows OCR就绪";
-                EngineStatusText.Text = statusMessage;
-                EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Green);
-                ResultListView.ItemsSource = results;
-
-                // 如果翻译窗口打开，自动更新翻译结果
-                if (_translationOverlay != null && results != null && results.Count > 0)
-                {
-                    _translationOverlay.UpdateWithOcrResults(results);
-                }
+                }                // 执行OCR识别
+                await PerformOcrRecognitionAsync();
             }
             catch (Exception ex)
             {
-                ResultListView.ItemsSource = new List<string> { $"发生错误: {ex.Message}" };
-                EngineStatusText.Text = "OCR失败";
-                EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Red);
+                ShowError($"发生错误: {ex.Message}");
+                SetOcrStatus("OCR失败", Microsoft.UI.Colors.Red);
 
-                // 如果出现错误，可能是会话失效，尝试重新创建
                 UpdateDebugInfo($"OCR过程中出现错误，尝试重新创建捕获会话: {ex.Message}");
                 CreatePersistentCaptureSession();
             }
@@ -434,15 +334,7 @@ namespace OcrApp
                 SoftwareBitmap? previewBitmap = null;
                 try
                 {
-                    using var canvasBitmap = CanvasBitmap.CreateFromDirect3D11Surface(
-                        CanvasDevice.GetSharedDevice(), capturedFrame.Surface);
-                    var pixelBytes = canvasBitmap.GetPixelBytes();
-                    previewBitmap = new SoftwareBitmap(
-                        BitmapPixelFormat.Bgra8,
-                        (int)canvasBitmap.SizeInPixels.Width,
-                        (int)canvasBitmap.SizeInPixels.Height,
-                        BitmapAlphaMode.Premultiplied);
-                    previewBitmap.CopyFromBuffer(pixelBytes.AsBuffer());
+                    previewBitmap = ConvertFrameToBitmap(capturedFrame);
                 }
                 catch (Exception ex)
                 {
@@ -607,7 +499,7 @@ namespace OcrApp
                 _framePool = null;
             }
         }        /// <summary>
-                 /// 获取最新的捕获帧，使用事件驱动模式
+                 /// 获取最新的捕获帧
                  /// </summary>
                  /// <returns>最新的捕获帧，如果获取失败返回null</returns>
         private async Task<Direct3D11CaptureFrame?> GetLatestFrameAsync()
@@ -615,7 +507,7 @@ namespace OcrApp
             if (_framePool == null)
                 return null;
 
-            // 先清空帧池中的旧帧，保留最新的
+            // 先尝试获取立即可用的帧
             Direct3D11CaptureFrame? latestFrame = null;
             Direct3D11CaptureFrame? currentFrame;
 
@@ -625,34 +517,27 @@ namespace OcrApp
                 latestFrame = currentFrame; // 保留当前帧作为最新帧
             }
 
-            // 如果有立即可用的帧，直接返回
             if (latestFrame != null)
-            {
                 return latestFrame;
-            }
 
-            // 如果没有立即可用的帧，等待下一个帧事件
+            // 如果没有立即可用的帧，等待新帧
             _frameCompletionSource = new TaskCompletionSource<Direct3D11CaptureFrame?>();
 
-            // 设置超时保护
-            var timeoutTask = Task.Delay(1000); // 1秒超时
-            var completedTask = await Task.WhenAny(_frameCompletionSource.Task, timeoutTask);
+            try
+            {
+                // 设置超时
+                using var cts = new System.Threading.CancellationTokenSource(1000);
+                cts.Token.Register(() => _frameCompletionSource?.TrySetResult(null));
 
-            if (completedTask == timeoutTask)
+                return await _frameCompletionSource.Task;
+            }
+            finally
             {
                 _frameCompletionSource = null;
-                UpdateDebugInfo("获取帧超时，尝试重新创建捕获会话");
-                CreatePersistentCaptureSession();
-                await Task.Delay(200); // 等待会话启动
-
-                // 最后一次尝试
-                return _framePool?.TryGetNextFrame();
             }
-
-            return await _frameCompletionSource.Task;
-        }        /// <summary>
-                 /// 帧到达事件处理器
-                 /// </summary>
+        }/// <summary>
+         /// 帧到达事件处理器
+         /// </summary>
         private void OnFrameArrived(Direct3D11CaptureFramePool sender, object args)
         {
             // 如果有等待中的请求，立即满足它
@@ -670,6 +555,135 @@ namespace OcrApp
                 {
                     frame.Dispose(); // 释放不需要的帧
                 }
+            }
+        }        // 帮助方法：从捕获帧转换为SoftwareBitmap
+        private SoftwareBitmap? ConvertFrameToBitmap(Direct3D11CaptureFrame capturedFrame)
+        {
+            try
+            {
+                using var canvasBitmap = CanvasBitmap.CreateFromDirect3D11Surface(
+                    CanvasDevice.GetSharedDevice(), capturedFrame.Surface);
+                var pixelBytes = canvasBitmap.GetPixelBytes();
+                var bitmap = new SoftwareBitmap(
+                    BitmapPixelFormat.Bgra8,
+                    (int)canvasBitmap.SizeInPixels.Width,
+                    (int)canvasBitmap.SizeInPixels.Height,
+                    BitmapAlphaMode.Premultiplied);
+                bitmap.CopyFromBuffer(pixelBytes.AsBuffer());
+                return bitmap;
+            }
+            catch (Exception ex)
+            {
+                UpdateDebugInfo($"位图转换失败: {ex.Message}");
+                return null;
+            }
+        }
+
+        // 帮助方法：裁剪位图
+        private async Task<SoftwareBitmap?> CropBitmapAsync(SoftwareBitmap sourceBitmap, Windows.Graphics.RectInt32 region)
+        {
+            try
+            {
+                // 验证区域有效性
+                if (region.Width <= 0 || region.Height <= 0 ||
+                    region.X < 0 || region.Y < 0 ||
+                    region.X + region.Width > sourceBitmap.PixelWidth ||
+                    region.Y + region.Height > sourceBitmap.PixelHeight)
+                {
+                    UpdateDebugInfo("选定区域无效，使用全图");
+                    return sourceBitmap;
+                }
+
+                using var ms = new InMemoryRandomAccessStream();
+                var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, ms);
+                encoder.SetSoftwareBitmap(sourceBitmap);
+                encoder.BitmapTransform.Bounds = new Windows.Graphics.Imaging.BitmapBounds
+                {
+                    X = (uint)region.X,
+                    Y = (uint)region.Y,
+                    Width = (uint)region.Width,
+                    Height = (uint)region.Height
+                };
+
+                await encoder.FlushAsync();
+                ms.Seek(0);
+
+                var decoder = await BitmapDecoder.CreateAsync(ms);
+                var croppedBitmap = await decoder.GetSoftwareBitmapAsync();
+
+                UpdateDebugInfo($"已应用区域裁剪: X={region.X}, Y={region.Y}, 宽={region.Width}, 高={region.Height}");
+                return croppedBitmap;
+            }
+            catch (Exception ex)
+            {
+                UpdateDebugInfo($"裁剪失败: {ex.Message}");
+                return sourceBitmap; // 返回原图
+            }
+        }        // 帮助方法：设置OCR状态
+        private void SetOcrStatus(string status, Windows.UI.Color color)
+        {
+            EngineStatusText.Text = status;
+            EngineStatusText.Foreground = new Microsoft.UI.Xaml.Media.SolidColorBrush(color);
+
+            // 同步状态到翻译窗口
+            _translationOverlay?.UpdateRecognitionStatus(status);
+        }
+
+        // 帮助方法：显示错误信息
+        private void ShowError(string message)
+        {
+            ResultListView.ItemsSource = new List<string> { message };
+        }
+
+        // 帮助方法：确保捕获会话有效
+        private bool EnsureCaptureSession()
+        {
+            if (_framePool != null && _captureSession != null)
+                return true;
+
+            CreatePersistentCaptureSession();
+
+            if (_framePool == null || _captureSession == null)
+            {
+                ShowError("捕获会话创建失败");
+                return false;
+            }
+
+            return true;
+        }
+
+        // 帮助方法：执行OCR识别
+        private async Task PerformOcrRecognitionAsync()
+        {
+            if (_lastCapturedBitmap == null || _ocrEngine == null)
+                return;
+
+            string statusMessage;
+            if (_currentEngineType == "Paddle")
+            {
+                statusMessage = "PaddleOCR识别中...";
+                SetOcrStatus(statusMessage, Microsoft.UI.Colors.Orange);
+                UpdateDebugInfo("开始使用PaddleOCR识别...");
+            }
+            else
+            {
+                statusMessage = "Windows OCR识别中...";
+                SetOcrStatus(statusMessage, Microsoft.UI.Colors.Orange);
+                UpdateDebugInfo("开始使用Windows OCR识别...");
+            }
+
+            var results = await _ocrEngine.RecognizeAsync(_lastCapturedBitmap);
+            var debugInfo = _ocrEngine.GenerateDebugInfo();
+            UpdateDebugInfo(debugInfo);
+
+            statusMessage = _currentEngineType == "Paddle" ? "PaddleOCR就绪" : "Windows OCR就绪";
+            SetOcrStatus(statusMessage, Microsoft.UI.Colors.Green);
+            ResultListView.ItemsSource = results;
+
+            // 如果翻译窗口打开，自动更新翻译结果
+            if (_translationOverlay != null && results != null && results.Count > 0)
+            {
+                _translationOverlay.UpdateWithOcrResults(results);
             }
         }
     }
