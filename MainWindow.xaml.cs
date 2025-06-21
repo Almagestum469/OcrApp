@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
@@ -11,6 +10,7 @@ using Windows.Graphics.DirectX.Direct3D11;
 using Windows.Graphics.Imaging;
 using Microsoft.Graphics.Canvas;
 using OcrApp.Engines;
+using OcrApp.Utils;
 using Windows.Storage.Streams;
 
 namespace OcrApp
@@ -20,9 +20,8 @@ namespace OcrApp
         private GraphicsCaptureItem? _captureItem;
         private SoftwareBitmap? _lastCapturedBitmap;
         private IOcrEngine? _ocrEngine;
-        private string _currentEngineType = "Paddle";
-        private TranslationOverlay? _translationOverlay;
-        
+        private string _currentEngineType = "Paddle"; private TranslationOverlay? _translationOverlay;
+
         // 添加区域选择相关变量
         private Windows.Graphics.RectInt32? _selectedRegion;
         private bool _useSelectedRegion;
@@ -32,57 +31,66 @@ namespace OcrApp
         private GraphicsCaptureSession? _captureSession;
         private IDirect3DDevice? _d3dDevice;
 
-        // 添加快捷键和触发延迟相关变量
-        private int _triggerHotkeyCode = 0x20; // 默认空格键 (VK_SPACE = 0x20)
-        private int _triggerDelayMs = 600; // 默认600毫秒延迟
-        private bool _isSettingHotkey; // 是否处于设置快捷键状态
-        private System.Threading.Timer? _triggerDelayTimer; // 触发延迟计时器
-
-        // P/Invoke declarations for global keyboard hook
-        private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
-        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
-        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool UnhookWindowsHookEx(IntPtr hhk);
-        [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
-        [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        private static extern IntPtr GetModuleHandle(string lpModuleName);
-
-        private const int WH_KEYBOARD_LL = 13;
-        private const int WM_KEYDOWN = 0x0100;
-        private const int WM_SYSKEYDOWN = 0x0104; // For F-keys when Alt is pressed, though F2 alone is usually WM_KEYDOWN
-
-        private static LowLevelKeyboardProc _proc = HookCallback; // Keep a reference to prevent GC
-        private static IntPtr _hookID = IntPtr.Zero; public MainWindow()
+        // 全局快捷键管理器
+        private GlobalHotkeyManager? _hotkeyManager; public MainWindow()
         {
             InitializeComponent();
             OcrEngineComboBox.SelectionChanged += OcrEngineComboBox_SelectionChanged;
             // 默认初始化Paddle OCR
             _ocrEngine = new PaddleOcrEngine();
             _ocrEngine.InitializeAsync();
-            SetDefaultOcrEngineSelection(); // 新增调用            // 设置快捷键按钮和延迟滑块的初始值
+            SetDefaultOcrEngineSelection(); // 新增调用
+
+            // 初始化快捷键管理器
+            InitializeHotkeyManager();
+
+            this.Closed += MainWindow_Closed;
+        }
+
+        private void InitializeHotkeyManager()
+        {
+            _hotkeyManager = new GlobalHotkeyManager();
+
+            // 设置快捷键按钮和延迟滑块的初始值
             if (HotkeyButton != null)
             {
-                HotkeyButton.Content = GetKeyNameFromVirtualKey(_triggerHotkeyCode);
+                HotkeyButton.Content = GlobalHotkeyManager.GetKeyNameFromVirtualKey(_hotkeyManager.TriggerHotkeyCode);
             }
             if (DelaySlider != null)
             {
-                DelaySlider.Value = _triggerDelayMs;
+                DelaySlider.Value = _hotkeyManager.TriggerDelayMs;
             }
             if (DelayValueText != null)
             {
-                DelayValueText.Text = $"{_triggerDelayMs}ms";
+                DelayValueText.Text = $"{_hotkeyManager.TriggerDelayMs}ms";
             }
 
-            _hookID = SetHook(_proc);
-            this.Closed += MainWindow_Closed;
+            // 订阅快捷键事件
+            _hotkeyManager.HotkeySetRequested += OnHotkeySetRequested;
+            _hotkeyManager.TriggerRequested += OnTriggerRequested;
+        }
+
+        private void OnHotkeySetRequested(int vkCode)
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                SetHotkey(vkCode);
+            });
+        }
+
+        private void OnTriggerRequested()
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (RecognizeButton.IsEnabled)
+                {
+                    RecognizeButton_Click(RecognizeButton, new RoutedEventArgs());
+                }
+            });
         }
         private void MainWindow_Closed(object sender, WindowEventArgs args)
         {
-            UnhookWindowsHookEx(_hookID);
-            _triggerDelayTimer?.Dispose();
+            _hotkeyManager?.Dispose();
 
             // 清理长时间维持的CaptureSession和相关资源
             _captureSession?.Dispose();
@@ -90,65 +98,6 @@ namespace OcrApp
             _lastCapturedBitmap?.Dispose();
             _d3dDevice = null;
         }
-
-        private static IntPtr SetHook(LowLevelKeyboardProc proc)
-        {
-            using (var curProcess = System.Diagnostics.Process.GetCurrentProcess())
-            using (var curModule = curProcess.MainModule)
-            {
-                if (curModule != null) // Add null check for curModule
-                {
-                    return SetWindowsHookEx(WH_KEYBOARD_LL, proc, GetModuleHandle(curModule.ModuleName), 0);
-                }
-                return IntPtr.Zero; // Or handle error appropriately
-            }
-        }
-        private static IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
-        {
-            if (nCode >= 0 && (wParam == (IntPtr)WM_KEYDOWN || wParam == (IntPtr)WM_SYSKEYDOWN))
-            {
-                int vkCode = Marshal.ReadInt32(lParam);
-
-                // 获取当前MainWindow实例
-                var currentWindow = App.CurrentWindow as MainWindow;
-
-                if (currentWindow != null)
-                {
-                    // 如果正在设置快捷键，则捕获当前按键并设置为新的快捷键
-                    if (currentWindow._isSettingHotkey)
-                    {
-                        currentWindow.DispatcherQueue.TryEnqueue(() =>
-                        {
-                            currentWindow.SetHotkey(vkCode);
-                        });
-                        // 不再传递事件，避免快捷键对应用程序产生影响
-                        return (IntPtr)1;
-                    }
-                    // 检查是否匹配当前设置的快捷键或F2键(0x71)
-                    else if ((vkCode == currentWindow._triggerHotkeyCode || vkCode == 0x71) && currentWindow.RecognizeButton.IsEnabled)
-                    {
-                        // 使用延迟触发
-                        currentWindow.DispatcherQueue.TryEnqueue(() =>
-                        {
-                            // 停止之前的计时器（如果存在）
-                            currentWindow._triggerDelayTimer?.Dispose();
-
-                            // 创建新的计时器
-                            currentWindow._triggerDelayTimer = new System.Threading.Timer(
-                                _ => currentWindow.DispatcherQueue.TryEnqueue(() =>
-                                    currentWindow.RecognizeButton_Click(currentWindow.RecognizeButton, new RoutedEventArgs())
-                                ),
-                                null,
-                                currentWindow._triggerDelayMs,  // 等待设置的延迟时间
-                                System.Threading.Timeout.Infinite // 不重复
-                            );
-                        });
-                    }
-                }
-            }
-            return CallNextHookEx(_hookID, nCode, wParam, lParam);
-        }
-
         private void SetDefaultOcrEngineSelection()
         {
             if (OcrEngineComboBox.Items.Count > 0)
@@ -558,74 +507,48 @@ namespace OcrApp
                 CreatePersistentCaptureSession();
             }
         }
-
         private void SetHotkey(int vkCode)
         {
-            // 设置新的热键
-            _triggerHotkeyCode = vkCode;
-            _isSettingHotkey = false;
-
-            // 更新按钮显示
-            HotkeyButton.Content = GetKeyNameFromVirtualKey(vkCode);
-            HotkeyButton.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LightGray);
-        }
-
-        private string GetKeyNameFromVirtualKey(int vkCode)
-        {
-            // 特殊键映射
-            switch (vkCode)
+            if (_hotkeyManager != null)
             {
-                case 0x20: return "空格";
-                case 0x1B: return "Esc";
-                case 0x09: return "Tab";
-                case 0x0D: return "Enter";
-                case 0x08: return "Back";
-                case 0x2E: return "Delete";
-                case 0x25: return "←";
-                case 0x26: return "↑";
-                case 0x27: return "→";
-                case 0x28: return "↓";
-                default:
-                    // 对于标准字母数字键，直接转换为字符
-                    if ((vkCode >= 0x30 && vkCode <= 0x39) || // 0-9
-                        (vkCode >= 0x41 && vkCode <= 0x5A))   // A-Z
-                    {
-                        return ((char)vkCode).ToString();
-                    }
+                // 设置新的热键
+                _hotkeyManager.TriggerHotkeyCode = vkCode;
+                _hotkeyManager.IsSettingHotkey = false;
 
-                    // F1-F12
-                    if (vkCode >= 0x70 && vkCode <= 0x7B)
-                    {
-                        return $"F{vkCode - 0x6F}";
-                    }
-
-                    // 对于其他键，返回虚拟键码
-                    return $"Key({vkCode})";
+                // 更新按钮显示
+                HotkeyButton.Content = GlobalHotkeyManager.GetKeyNameFromVirtualKey(vkCode);
+                HotkeyButton.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LightGray);
             }
         }
 
         private void HotkeyButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_isSettingHotkey)
+            if (_hotkeyManager == null) return;
+
+            if (_hotkeyManager.IsSettingHotkey)
             {
                 // 如果已经处于设置状态，则取消设置
-                _isSettingHotkey = false;
+                _hotkeyManager.IsSettingHotkey = false;
                 HotkeyButton.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LightGray);
             }
             else
             {
                 // 进入设置状态
-                _isSettingHotkey = true;
+                _hotkeyManager.IsSettingHotkey = true;
                 HotkeyButton.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Orange);
                 HotkeyButton.Content = "按下按键...";
             }
         }
+
         private void DelaySlider_ValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
         {
-            _triggerDelayMs = (int)e.NewValue;
-            if (DelayValueText != null) // 添加空检查
+            if (_hotkeyManager != null)
             {
-                DelayValueText.Text = $"{_triggerDelayMs}ms";
+                _hotkeyManager.TriggerDelayMs = (int)e.NewValue;
+                if (DelayValueText != null)
+                {
+                    DelayValueText.Text = $"{_hotkeyManager.TriggerDelayMs}ms";
+                }
             }
         }
 
