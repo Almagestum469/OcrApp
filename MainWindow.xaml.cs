@@ -12,6 +12,10 @@ using Microsoft.Graphics.Canvas;
 using OcrApp.Engines;
 using OcrApp.Utils;
 using Windows.Storage.Streams;
+using System.Threading;
+using CoenM.ImageHash;
+using CoenM.ImageHash.HashAlgorithms;
+using System.IO;
 
 namespace OcrApp
 {
@@ -31,10 +35,14 @@ namespace OcrApp
         private IDirect3DDevice? _d3dDevice;
 
         // 事件驱动的帧获取相关变量
-        private TaskCompletionSource<Direct3D11CaptureFrame?>? _frameCompletionSource;
-
-        // 全局快捷键管理器
+        private TaskCompletionSource<Direct3D11CaptureFrame?>? _frameCompletionSource;        // 全局快捷键管理器
         private GlobalHotkeyManager? _hotkeyManager;
+
+        // 自动模式相关变量
+        private bool _isAutoModeEnabled = false;
+        private CancellationTokenSource? _autoModeCancellationTokenSource;
+        private byte[]? _lastImageData;
+        private readonly IImageHash _hashAlgorithm = new PerceptualHash();
         public MainWindow()
         {
             InitializeComponent();
@@ -93,6 +101,9 @@ namespace OcrApp
         }
         private void MainWindow_Closed(object sender, WindowEventArgs args)
         {
+            // 停止自动模式
+            StopAutoMode();
+
             _hotkeyManager?.Dispose();
 
             // 清理长时间维持的CaptureSession和相关资源
@@ -361,10 +372,12 @@ namespace OcrApp
                     if (region != null)
                     {
                         _selectedRegion = region;
-                        _useSelectedRegion = true;
-                        DispatcherQueue.TryEnqueue(async () =>
+                        _useSelectedRegion = true; DispatcherQueue.TryEnqueue(async () =>
                         {
                             ResultListView.ItemsSource = new List<string> { $"已设置识别区域: X={region.Value.X}, Y={region.Value.Y}, 宽={region.Value.Width}, 高={region.Value.Height}" };
+
+                            // 启用自动模式开关
+                            AutoModeToggle.IsEnabled = true;
 
                             // 自动打开翻译窗口（如果还没有打开）
                             if (_translationOverlay == null)
@@ -386,6 +399,12 @@ namespace OcrApp
                         DispatcherQueue.TryEnqueue(() =>
                         {
                             ResultListView.ItemsSource = new List<string> { "未设置识别区域，将识别整个窗口" };
+                            // 禁用自动模式开关并停止自动模式
+                            AutoModeToggle.IsEnabled = false;
+                            if (_isAutoModeEnabled)
+                            {
+                                AutoModeToggle.IsOn = false;
+                            }
                         });
                     }
                 };
@@ -684,6 +703,244 @@ namespace OcrApp
             if (_translationOverlay != null && results != null && results.Count > 0)
             {
                 _translationOverlay.UpdateWithOcrResults(results);
+            }
+        }
+
+        // 自动模式切换事件处理器
+        private void AutoModeToggle_Toggled(object sender, RoutedEventArgs e)
+        {
+            var toggle = sender as ToggleSwitch;
+            if (toggle == null) return;
+
+            if (toggle.IsOn)
+            {
+                StartAutoMode();
+            }
+            else
+            {
+                StopAutoMode();
+            }
+        }
+
+        // 启动自动模式
+        private void StartAutoMode()
+        {
+            if (_isAutoModeEnabled) return;
+
+            _isAutoModeEnabled = true;
+            _autoModeCancellationTokenSource = new CancellationTokenSource();
+            _lastImageData = null; // 重置上次图像数据
+
+            UpdateDebugInfo("自动模式已启动");
+
+            // 启动自动模式协程
+            _ = Task.Run(async () => await AutoModeLoopAsync(_autoModeCancellationTokenSource.Token));
+        }
+
+        // 停止自动模式
+        private void StopAutoMode()
+        {
+            if (!_isAutoModeEnabled) return;
+
+            _isAutoModeEnabled = false;
+            _autoModeCancellationTokenSource?.Cancel();
+            _autoModeCancellationTokenSource?.Dispose();
+            _autoModeCancellationTokenSource = null;
+            _lastImageData = null;
+
+            UpdateDebugInfo("自动模式已停止");
+        }
+
+        // 自动模式主循环
+        private async Task AutoModeLoopAsync(CancellationToken cancellationToken)
+        {
+            try
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                {                    // 1. 获取最新截图并进行识别
+                    var recognitionTask = new TaskCompletionSource<bool>();
+                    DispatcherQueue.TryEnqueue(async () =>
+                    {
+                        try
+                        {
+                            await CaptureAndRecognizeAsync();
+                            recognitionTask.SetResult(true);
+                        }
+                        catch (Exception ex)
+                        {
+                            UpdateDebugInfo($"自动模式识别失败: {ex.Message}");
+                            recognitionTask.SetResult(false);
+                        }
+                    });
+                    await recognitionTask.Task;
+
+                    // 2. 等待500ms
+                    await Task.Delay(500, cancellationToken);                    // 3. 获取新截图并比较相似度
+                    var similarityTask = new TaskCompletionSource<bool>();
+                    DispatcherQueue.TryEnqueue(async () =>
+                    {
+                        try
+                        {
+                            var shouldContinue = await CheckImageSimilarityAsync();
+                            similarityTask.SetResult(shouldContinue);
+                        }
+                        catch (Exception ex)
+                        {
+                            UpdateDebugInfo($"自动模式图像比较失败: {ex.Message}");
+                            similarityTask.SetResult(true); // 出错时继续循环
+                        }
+                    });
+                    var shouldContinue = await similarityTask.Task;
+
+                    // 如果相似度高于98%，继续等待
+                    if (!shouldContinue)
+                    {
+                        await Task.Delay(100, cancellationToken); // 短暂等待后重新检查
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                // 正常取消，不需要处理
+            }
+            catch (Exception ex)
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    UpdateDebugInfo($"自动模式异常退出: {ex.Message}");
+                    // 自动停止自动模式
+                    AutoModeToggle.IsOn = false;
+                });
+            }
+        }
+
+        // 捕获并识别
+        private async Task CaptureAndRecognizeAsync()
+        {
+            if (_captureItem == null || _ocrEngine == null) return;
+
+            // 确保捕获会话有效
+            if (!EnsureCaptureSession()) return;
+
+            // 获取最新的捕获帧
+            var capturedFrame = await GetLatestFrameAsync();
+            if (capturedFrame == null) return;
+
+            SoftwareBitmap? bitmap = null;
+            try
+            {
+                bitmap = ConvertFrameToBitmap(capturedFrame);
+                if (bitmap == null) return;
+
+                // 应用区域裁剪
+                if (_useSelectedRegion && _selectedRegion.HasValue)
+                {
+                    var region = _selectedRegion.Value;
+                    if (region.Width > 0 && region.Height > 0 &&
+                        region.X >= 0 && region.Y >= 0 &&
+                        region.X + region.Width <= bitmap.PixelWidth &&
+                        region.Y + region.Height <= bitmap.PixelHeight)
+                    {
+                        bitmap = await CropBitmapAsync(bitmap, region);
+                    }
+                }                // 保存当前图像数据用于下次比较
+                if (bitmap != null)
+                {
+                    _lastImageData = await ConvertBitmapToPngBytesAsync(bitmap);
+                }
+
+                // 清理上一次的位图资源
+                _lastCapturedBitmap?.Dispose();
+                _lastCapturedBitmap = bitmap;
+
+                // 执行OCR识别
+                await PerformOcrRecognitionAsync();
+            }
+            catch (Exception ex)
+            {
+                UpdateDebugInfo($"自动模式捕获识别失败: {ex.Message}");
+                bitmap?.Dispose();
+            }
+            finally
+            {
+                capturedFrame.Dispose();
+            }
+        }
+
+        // 检查图像相似度
+        private async Task<bool> CheckImageSimilarityAsync()
+        {
+            if (_lastImageData == null) return true; // 没有上次数据，继续识别
+
+            // 获取新的截图
+            var capturedFrame = await GetLatestFrameAsync();
+            if (capturedFrame == null) return false;
+
+            SoftwareBitmap? bitmap = null;
+            try
+            {
+                bitmap = ConvertFrameToBitmap(capturedFrame);
+                if (bitmap == null) return false;
+
+                // 应用区域裁剪
+                if (_useSelectedRegion && _selectedRegion.HasValue)
+                {
+                    var region = _selectedRegion.Value;
+                    if (region.Width > 0 && region.Height > 0 &&
+                        region.X >= 0 && region.Y >= 0 &&
+                        region.X + region.Width <= bitmap.PixelWidth &&
+                        region.Y + region.Height <= bitmap.PixelHeight)
+                    {
+                        bitmap = await CropBitmapAsync(bitmap, region);
+                    }
+                }                // 转换为PNG字节数组
+                var currentImageData = bitmap != null ? await ConvertBitmapToPngBytesAsync(bitmap) : null;
+                if (currentImageData == null) return false;
+
+                // 计算图像哈希并比较相似度
+                using var lastStream = new MemoryStream(_lastImageData);
+                using var currentStream = new MemoryStream(currentImageData);
+
+                var hash1 = _hashAlgorithm.Hash(lastStream);
+                var hash2 = _hashAlgorithm.Hash(currentStream);
+
+                var similarity = CompareHash.Similarity(hash1, hash2);
+
+                UpdateDebugInfo($"图像相似度: {similarity:F2}%");
+
+                // 如果相似度小于98%，则需要重新识别
+                return similarity < 98.0;
+            }
+            catch (Exception ex)
+            {
+                UpdateDebugInfo($"图像相似度比较失败: {ex.Message}");
+                return true; // 出错时继续识别
+            }
+            finally
+            {
+                bitmap?.Dispose();
+                capturedFrame.Dispose();
+            }
+        }        // 将SoftwareBitmap转换为PNG字节数组
+        private async Task<byte[]?> ConvertBitmapToPngBytesAsync(SoftwareBitmap bitmap)
+        {
+            try
+            {
+                using var stream = new InMemoryRandomAccessStream();
+                var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, stream);
+                encoder.SetSoftwareBitmap(bitmap);
+                await encoder.FlushAsync();
+
+                stream.Seek(0);
+                var buffer = new byte[stream.Size];
+                var reader = stream.AsStreamForRead();
+                await reader.ReadAsync(buffer, 0, buffer.Length);
+                return buffer;
+            }
+            catch (Exception ex)
+            {
+                UpdateDebugInfo($"转换位图为PNG失败: {ex.Message}");
+                return null;
             }
         }
     }
