@@ -129,9 +129,9 @@ namespace OcrApp
 
         private void UpdateDebugInfo(string debugInfo)
         {
-            DebugTextBlock.Text = debugInfo;
-            DebugScrollViewer.UpdateLayout();
-            DebugScrollViewer.ScrollToVerticalOffset(DebugScrollViewer.ScrollableHeight);
+            // DebugTextBlock.Text = debugInfo;
+            // DebugScrollViewer.UpdateLayout();
+            // DebugScrollViewer.ScrollToVerticalOffset(DebugScrollViewer.ScrollableHeight);
         }
         private async void OcrEngineComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
