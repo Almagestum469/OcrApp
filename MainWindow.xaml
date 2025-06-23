@@ -27,7 +27,10 @@
                 <Button x:Name="SelectCaptureItemButton" Content="选择捕获窗口" Click="SelectCaptureItemButton_Click" />
                 <Button x:Name="SelectRegionButton" Content="选择识别区域" Click="SelectRegionButton_Click" IsEnabled="False" Margin="10,0,0,0"/>                <Button x:Name="RecognizeButton" x:FieldModifier="internal" Content="执行识别(F2)" Click="RecognizeButton_Click" IsEnabled="False" Margin="10,0,0,0"/>
                 <Button x:Name="ToggleTranslationOverlayButton" Content="翻译窗口" Click="ToggleTranslationOverlayButton_Click" Margin="10,0,0,0"/>
-                <ToggleSwitch x:Name="AutoModeToggle" Header="自动模式" IsOn="False" IsEnabled="False" Toggled="AutoModeToggle_Toggled" Margin="10,0,0,0"/>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0,0,0">
+                    <TextBlock Text="自动模式" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                    <ToggleSwitch x:Name="AutoModeToggle" IsOn="False" IsEnabled="False" Toggled="AutoModeToggle_Toggled"/>
+                </StackPanel>
             </controls:WrapPanel>
 
             <controls:WrapPanel Orientation="Horizontal" HorizontalSpacing="10" VerticalSpacing="10"  Margin="0,10,0,0" Grid.Row="1">

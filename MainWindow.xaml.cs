@@ -749,53 +749,68 @@ namespace OcrApp
             _lastImageData = null;
 
             UpdateDebugInfo("自动模式已停止");
-        }
-
-        // 自动模式主循环
+        }        // 自动模式主循环
         private async Task AutoModeLoopAsync(CancellationToken cancellationToken)
         {
             try
             {
-                while (!cancellationToken.IsCancellationRequested)
-                {                    // 1. 获取最新截图并进行识别
-                    var recognitionTask = new TaskCompletionSource<bool>();
-                    DispatcherQueue.TryEnqueue(async () =>
+                // 第一次启动时执行识别
+                var firstRecognitionTask = new TaskCompletionSource<bool>();
+                DispatcherQueue.TryEnqueue(async () =>
+                {
+                    try
                     {
-                        try
-                        {
-                            await CaptureAndRecognizeAsync();
-                            recognitionTask.SetResult(true);
-                        }
-                        catch (Exception ex)
-                        {
-                            UpdateDebugInfo($"自动模式识别失败: {ex.Message}");
-                            recognitionTask.SetResult(false);
-                        }
-                    });
-                    await recognitionTask.Task;
+                        await CaptureAndRecognizeAsync();
+                        firstRecognitionTask.SetResult(true);
+                    }
+                    catch (Exception ex)
+                    {
+                        UpdateDebugInfo($"自动模式首次识别失败: {ex.Message}");
+                        firstRecognitionTask.SetResult(false);
+                    }
+                });
+                await firstRecognitionTask.Task;
 
-                    // 2. 等待500ms
-                    await Task.Delay(500, cancellationToken);                    // 3. 获取新截图并比较相似度
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    // 等待500ms
+                    await Task.Delay(500, cancellationToken);
+
+                    // 检查图像相似度
                     var similarityTask = new TaskCompletionSource<bool>();
                     DispatcherQueue.TryEnqueue(async () =>
                     {
                         try
                         {
-                            var shouldContinue = await CheckImageSimilarityAsync();
-                            similarityTask.SetResult(shouldContinue);
+                            var shouldRecognize = await CheckImageSimilarityAsync();
+                            similarityTask.SetResult(shouldRecognize);
                         }
                         catch (Exception ex)
                         {
                             UpdateDebugInfo($"自动模式图像比较失败: {ex.Message}");
-                            similarityTask.SetResult(true); // 出错时继续循环
+                            similarityTask.SetResult(true); // 出错时继续识别
                         }
                     });
-                    var shouldContinue = await similarityTask.Task;
+                    var shouldRecognize = await similarityTask.Task;
 
-                    // 如果相似度高于98%，继续等待
-                    if (!shouldContinue)
+                    // 只有当需要识别时才执行识别
+                    if (shouldRecognize)
                     {
-                        await Task.Delay(100, cancellationToken); // 短暂等待后重新检查
+                        var recognitionTask = new TaskCompletionSource<bool>();
+                        DispatcherQueue.TryEnqueue(async () =>
+                        {
+                            try
+                            {
+                                await CaptureAndRecognizeAsync();
+                                recognitionTask.SetResult(true);
+                            }
+                            catch (Exception ex)
+                            {
+                                UpdateDebugInfo($"自动模式识别失败: {ex.Message}");
+                                recognitionTask.SetResult(false);
+                            }
+                        });
+                        await recognitionTask.Task;
                     }
                 }
             }
@@ -902,14 +917,12 @@ namespace OcrApp
                 using var currentStream = new MemoryStream(currentImageData);
 
                 var hash1 = _hashAlgorithm.Hash(lastStream);
-                var hash2 = _hashAlgorithm.Hash(currentStream);
-
-                var similarity = CompareHash.Similarity(hash1, hash2);
+                var hash2 = _hashAlgorithm.Hash(currentStream); var similarity = CompareHash.Similarity(hash1, hash2);
 
                 UpdateDebugInfo($"图像相似度: {similarity:F2}%");
 
-                // 如果相似度小于98%，则需要重新识别
-                return similarity < 98.0;
+                // 如果相似度小于95%，则需要重新识别
+                return similarity < 99.0;
             }
             catch (Exception ex)
             {
