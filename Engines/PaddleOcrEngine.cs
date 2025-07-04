@@ -37,7 +37,7 @@ namespace OcrApp.Engines
       {
         if (_isInitialized && _paddleOcrEngine != null)
           return Task.FromResult(true);
-        FullOcrModel model = LocalFullModels.EnglishV4;
+        FullOcrModel model = LocalFullModels.ChineseV5;
         _paddleOcrEngine = new PaddleOcrAll(model, PaddleDevice.Onnx())
         {
           AllowRotateDetection = false,

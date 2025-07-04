@@ -25,7 +25,7 @@
             </Grid.RowDefinitions>
             <controls:WrapPanel Orientation="Horizontal" HorizontalSpacing="10" VerticalSpacing="10" Grid.Row="0">            
                 <Button x:Name="SelectCaptureItemButton" Content="选择捕获窗口" Click="SelectCaptureItemButton_Click" />
-                <Button x:Name="SelectRegionButton" Content="选择识别区域" Click="SelectRegionButton_Click" IsEnabled="False" Margin="10,0,0,0"/>                <Button x:Name="RecognizeButton" x:FieldModifier="internal" Content="执行识别(F2)" Click="RecognizeButton_Click" IsEnabled="False" Margin="10,0,0,0"/>
+                <Button x:Name="SelectRegionButton" Content="选择识别区域" Click="SelectRegionButton_Click" IsEnabled="False" Margin="10,0,0,0"/>                <Button x:Name="RecognizeButton" x:FieldModifier="internal" Content="执行识别(F12)" Click="RecognizeButton_Click" IsEnabled="False" Margin="10,0,0,0"/>
                 <Button x:Name="ToggleTranslationOverlayButton" Content="翻译窗口" Click="ToggleTranslationOverlayButton_Click" Margin="10,0,0,0"/>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0,0,0">
                     <TextBlock Text="自动模式" VerticalAlignment="Center" Margin="0,0,5,0"/>
@@ -40,9 +40,8 @@
                     <ComboBoxItem Content="PaddleOCR" Tag="Paddle" />
                 </ComboBox>
                 <TextBlock x:Name="EngineStatusText" Text="准备就绪" VerticalAlignment="Center" Foreground="Green" Margin="10,0,0,0" />
-                
-                <TextBlock Text="额外触发快捷键:" VerticalAlignment="Center" Margin="20,0,0,0" />
-                <Button x:Name="HotkeyButton" Content="空格" Click="HotkeyButton_Click" MinWidth="60" />
+                  <TextBlock Text="额外触发快捷键:" VerticalAlignment="Center" Margin="20,0,0,0" />
+                <Button x:Name="HotkeyButton" Content="未设置" Click="HotkeyButton_Click" MinWidth="60" />
                 
                 <TextBlock Text="触发延迟:" VerticalAlignment="Center" Margin="10,0,0,0" />
                 <Slider x:Name="DelaySlider" Width="100" Minimum="0" Maximum="1000" Value="600"
