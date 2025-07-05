@@ -5,10 +5,11 @@ using System.Text;
 using System.Threading.Tasks;
 using Windows.Graphics.Imaging;
 using Windows.Media.Ocr;
-using OcrApp.Utils;
+
 
 namespace OcrApp.Engines
-{  public class WindowsOcrEngine : IOcrEngine
+{
+  public class WindowsOcrEngine : IOcrEngine
   {
     private OcrEngine? _ocrEngine;
     private OcrResult? _lastOcrResult;
@@ -18,7 +19,8 @@ namespace OcrApp.Engines
       var desiredLanguage = new Windows.Globalization.Language("en-US");
       _ocrEngine = OcrEngine.TryCreateFromLanguage(desiredLanguage) ?? OcrEngine.TryCreateFromUserProfileLanguages();
       return Task.FromResult(_ocrEngine != null);
-    }    public async Task<List<string>> RecognizeAsync(SoftwareBitmap bitmap)
+    }
+    public async Task<List<string>> RecognizeAsync(SoftwareBitmap bitmap)
     {
       if (_ocrEngine == null) return new List<string> { "Windows OCR引擎未初始化" };
       _lastOcrResult = await _ocrEngine.RecognizeAsync(bitmap);
@@ -26,14 +28,16 @@ namespace OcrApp.Engines
       {
         // 按位置排序所有行，然后直接合并为一段文本
         var sortedLines = _lastOcrResult.Lines
-          .OrderBy(line => {
+          .OrderBy(line =>
+          {
             if (line.Words != null && line.Words.Any())
             {
               return line.Words.Min(w => w.BoundingRect.Top) + line.Words.Max(w => w.BoundingRect.Bottom);
             }
             return 0;
           })
-          .ThenBy(line => {
+          .ThenBy(line =>
+          {
             if (line.Words != null && line.Words.Any())
             {
               return line.Words.Min(w => w.BoundingRect.Left);
@@ -96,7 +100,7 @@ namespace OcrApp.Engines
       {
         debugInfo.AppendLine("未检测到任何文本行");
       }
-      debugInfo.AppendLine("=== 调试信息结束 ===");      return debugInfo.ToString();
+      debugInfo.AppendLine("=== 调试信息结束 ==="); return debugInfo.ToString();
     }
   }
 }

@@ -1,76 +1,143 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8" ?>
 <Window
     x:Class="OcrApp.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:local="using:OcrApp"
+    xmlns:controls="using:CommunityToolkit.WinUI.Controls"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:controls="using:CommunityToolkit.WinUI.Controls"
-    mc:Ignorable="d"
-    Title="OcrApp">
+    xmlns:local="using:OcrApp"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    Title="OcrApp"
+    mc:Ignorable="d">
 
     <Window.SystemBackdrop>
         <MicaBackdrop />
-    </Window.SystemBackdrop>    
+    </Window.SystemBackdrop>
     <Grid Padding="20">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
         </Grid.RowDefinitions>
-        <!-- 顶部按钮区 -->
+        <!--  顶部按钮区  -->
         <Grid Grid.Row="0">
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <controls:WrapPanel Orientation="Horizontal" HorizontalSpacing="10" VerticalSpacing="10" Grid.Row="0">            
-                <Button x:Name="SelectCaptureItemButton" Content="选择捕获窗口" Click="SelectCaptureItemButton_Click" />
-                <Button x:Name="SelectRegionButton" Content="选择识别区域" Click="SelectRegionButton_Click" IsEnabled="False" Margin="10,0,0,0"/>                <Button x:Name="RecognizeButton" x:FieldModifier="internal" Content="执行识别(F12)" Click="RecognizeButton_Click" IsEnabled="False" Margin="10,0,0,0"/>
-                <Button x:Name="ToggleTranslationOverlayButton" Content="翻译窗口" Click="ToggleTranslationOverlayButton_Click" Margin="10,0,0,0"/>
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="10,0,0,0">
-                    <TextBlock Text="自动模式" VerticalAlignment="Center" Margin="0,0,5,0"/>
-                    <ToggleSwitch x:Name="AutoModeToggle" IsOn="False" IsEnabled="False" Toggled="AutoModeToggle_Toggled"/>
+            <controls:WrapPanel
+                Grid.Row="0"
+                HorizontalSpacing="10"
+                Orientation="Horizontal"
+                VerticalSpacing="10">
+                <Button
+                    x:Name="SelectCaptureItemButton"
+                    Click="SelectCaptureItemButton_Click"
+                    Content="选择捕获窗口" />
+                <Button
+                    x:Name="SelectRegionButton"
+                    Margin="10,0,0,0"
+                    Click="SelectRegionButton_Click"
+                    Content="选择识别区域"
+                    IsEnabled="False" />
+                <Button
+                    x:Name="RecognizeButton"
+                    Margin="10,0,0,0"
+                    x:FieldModifier="internal"
+                    Click="RecognizeButton_Click"
+                    Content="执行识别(F12)"
+                    IsEnabled="False" />
+                <Button
+                    x:Name="ToggleTranslationOverlayButton"
+                    Margin="10,0,0,0"
+                    Click="ToggleTranslationOverlayButton_Click"
+                    Content="翻译窗口" />
+                <StackPanel
+                    Margin="10,0,0,0"
+                    VerticalAlignment="Center"
+                    Orientation="Horizontal">
+                    <TextBlock
+                        Margin="0,0,5,0"
+                        VerticalAlignment="Center"
+                        Text="自动模式" />
+                    <ToggleSwitch
+                        x:Name="AutoModeToggle"
+                        IsEnabled="False"
+                        IsOn="False"
+                        Toggled="AutoModeToggle_Toggled" />
                 </StackPanel>
             </controls:WrapPanel>
 
-            <controls:WrapPanel Orientation="Horizontal" HorizontalSpacing="10" VerticalSpacing="10"  Margin="0,10,0,0" Grid.Row="1">
-                <TextBlock Text="OCR引擎:" VerticalAlignment="Center" />
+            <controls:WrapPanel
+                Grid.Row="1"
+                Margin="0,10,0,0"
+                HorizontalSpacing="10"
+                Orientation="Horizontal"
+                VerticalSpacing="10">
+                <TextBlock VerticalAlignment="Center" Text="OCR引擎:" />
                 <ComboBox x:Name="OcrEngineComboBox" MinWidth="150">
                     <ComboBoxItem Content="Windows OCR" Tag="Windows" />
                     <ComboBoxItem Content="PaddleOCR" Tag="Paddle" />
                 </ComboBox>
-                <TextBlock x:Name="EngineStatusText" Text="准备就绪" VerticalAlignment="Center" Foreground="Green" Margin="10,0,0,0" />
-                  <TextBlock Text="额外触发快捷键:" VerticalAlignment="Center" Margin="20,0,0,0" />
-                <Button x:Name="HotkeyButton" Content="未设置" Click="HotkeyButton_Click" MinWidth="60" />
-                
-                <TextBlock Text="触发延迟:" VerticalAlignment="Center" Margin="10,0,0,0" />
-                <Slider x:Name="DelaySlider" Width="100" Minimum="0" Maximum="1000" Value="600"
-                        ValueChanged="DelaySlider_ValueChanged" />
-                <TextBlock x:Name="DelayValueText" Text="600ms" VerticalAlignment="Center" MinWidth="50" />
+                <TextBlock
+                    x:Name="EngineStatusText"
+                    Margin="10,0,0,0"
+                    VerticalAlignment="Center"
+                    Foreground="Green"
+                    Text="准备就绪" />
+                <TextBlock
+                    Margin="20,0,0,0"
+                    VerticalAlignment="Center"
+                    Text="额外触发快捷键:" />
+                <Button
+                    x:Name="HotkeyButton"
+                    MinWidth="60"
+                    Click="HotkeyButton_Click"
+                    Content="未设置" />
+
+                <TextBlock
+                    Margin="10,0,0,0"
+                    VerticalAlignment="Center"
+                    Text="触发延迟:" />
+                <Slider
+                    x:Name="DelaySlider"
+                    Width="100"
+                    Maximum="1000"
+                    Minimum="0"
+                    ValueChanged="DelaySlider_ValueChanged"
+                    Value="600" />
+                <TextBlock
+                    x:Name="DelayValueText"
+                    MinWidth="50"
+                    VerticalAlignment="Center"
+                    Text="600ms" />
             </controls:WrapPanel>
         </Grid>
-        <!-- 结果区 -->
+        <!--  结果区  -->
         <Grid Grid.Row="1" Margin="0,20,0,0">
             <Grid.RowDefinitions>
-                <RowDefinition Height="300"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
+                <RowDefinition Height="300" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
             </Grid.RowDefinitions>
-            <ListView x:Name="ResultListView" Grid.Row="0" IsItemClickEnabled="True" ItemClick="ResultListView_ItemClick">
+            <ListView
+                x:Name="ResultListView"
+                Grid.Row="0"
+                IsItemClickEnabled="True"
+                ItemClick="ResultListView_ItemClick">
                 <ListView.ItemTemplate>
                     <DataTemplate>
-                        <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding}" TextWrapping="Wrap" />
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
-            
+
             <!-- <TextBlock Grid.Row="1" Text="调试信息:" VerticalAlignment="Center" FontWeight="Bold" Margin="0,5,0,0" />
-            
-            <ScrollViewer x:Name="DebugScrollViewer" Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" 
+
+            <ScrollViewer x:Name="DebugScrollViewer" Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
                           BorderBrush="Gray" BorderThickness="1"  Margin="0,5,0,0">
-                <TextBlock x:Name="DebugTextBlock" Text="等待OCR识别..." FontFamily="Consolas" FontSize="11" 
+                <TextBlock x:Name="DebugTextBlock" Text="等待OCR识别..." FontFamily="Consolas" FontSize="11"
                            Padding="10" Foreground="LightGray" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
-            </ScrollViewer> -->
+            </ScrollViewer>-->
         </Grid>
     </Grid>
 </Window>
