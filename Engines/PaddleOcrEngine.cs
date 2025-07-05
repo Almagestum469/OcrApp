@@ -18,14 +18,8 @@ namespace OcrApp.Engines
   {
     private PaddleOcrAll? _paddleOcrEngine;
     private bool _isInitialized = false;
-    private PaddleOcrResult? _lastOcrResult;    /// <summary>
-                                                /// 缓存每个区域基于角点计算的实际边界框信息
-                                                /// </summary>
+    private PaddleOcrResult? _lastOcrResult;
     private Dictionary<PaddleOcrResultRegion, (double Left, double Right, double Top, double Bottom, double ActualWidth, double ActualHeight)> _regionBoundsCache = new Dictionary<PaddleOcrResultRegion, (double, double, double, double, double, double)>();
-
-    /// <summary>
-    /// OCR置信度阈值，低于此值的文本区域将被过滤
-    /// </summary>
     private double _confidenceThreshold = 0.90;
 
     // 记录最近一次识别耗时（毫秒）
@@ -221,11 +215,7 @@ namespace OcrApp.Engines
       var buffer = bytes.AsBuffer();
       await stream.ReadAsync(buffer, (uint)stream.Size, InputStreamOptions.None);
       return bytes;
-    }    /// <summary>
-         /// 基于四个角点坐标计算实际的边界框信息
-         /// </summary>
-         /// <param name="region">OCR识别区域</param>
-         /// <returns>实际边界框信息：左，右，上，下，宽度，高度</returns>
+    }
     private (double Left, double Right, double Top, double Bottom, double ActualWidth, double ActualHeight) GetActualBounds(PaddleOcrResultRegion region)
     {
       // 检查缓存
@@ -292,11 +282,6 @@ namespace OcrApp.Engines
       _isInitialized = false;
     }
 
-    /// <summary>
-    /// 改进的排序算法：先按行分组（Y坐标相近的为同一行），再在每行内按X坐标从左到右排序
-    /// </summary>
-    /// <param name="regions">待排序的文本区域列表</param>
-    /// <returns>排序后的文本区域列表</returns>
     private List<PaddleOcrResultRegion> SortRegionsByRowsAndColumns(List<PaddleOcrResultRegion> regions)
     {
       if (!regions.Any()) return regions;

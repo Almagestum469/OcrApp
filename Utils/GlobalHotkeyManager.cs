@@ -4,9 +4,7 @@ using System.Threading;
 
 namespace OcrApp.Utils
 {
-  /// <summary>
-  /// 全局快捷键管理器，负责处理全局键盘钩子和快捷键触发
-  /// </summary>
+
   public class GlobalHotkeyManager : IDisposable
   {
     // P/Invoke declarations for global keyboard hook
@@ -95,9 +93,7 @@ namespace OcrApp.Utils
           TriggerDelayMs,
           Timeout.Infinite
       );
-    }    /// <summary>
-         /// 获取虚拟键码对应的键名
-         /// </summary>
+    }
     public static string GetKeyNameFromVirtualKey(int vkCode)
     {
       // 未设置状态

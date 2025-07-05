@@ -49,11 +49,7 @@ namespace OcrApp.Utils
       }
     }
 
-    /// <summary>
-    /// Translates English text to Chinese (Simplified).
-    /// </summary>
-    /// <param name="textToTranslate">The English text to translate.</param>
-    /// <returns>The translated Chinese text, or an error message if translation fails.</returns>
+
     public static async Task<string> TranslateEnglishToChineseAsync(string textToTranslate)
     {
       if (string.IsNullOrWhiteSpace(textToTranslate))
@@ -138,11 +134,7 @@ namespace OcrApp.Utils
       }
     }
 
-    /// <summary>
-    /// 将翻译结果添加到缓存中
-    /// </summary>
-    /// <param name="sourceText">源文本</param>
-    /// <param name="translatedText">翻译后的文本</param>
+
     private static void AddToCache(string sourceText, string translatedText)
     {
       lock (CacheLock)
@@ -174,9 +166,7 @@ namespace OcrApp.Utils
       }
     }
 
-    /// <summary>
-    /// 清空翻译缓存
-    /// </summary>
+
     public static void ClearCache()
     {
       lock (CacheLock)

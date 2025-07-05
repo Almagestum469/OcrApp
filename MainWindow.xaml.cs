@@ -517,10 +517,7 @@ namespace OcrApp
                 _captureSession = null;
                 _framePool = null;
             }
-        }        /// <summary>
-                 /// 获取最新的捕获帧
-                 /// </summary>
-                 /// <returns>最新的捕获帧，如果获取失败返回null</returns>
+        }
         private async Task<Direct3D11CaptureFrame?> GetLatestFrameAsync()
         {
             if (_framePool == null)
@@ -554,9 +551,7 @@ namespace OcrApp
             {
                 _frameCompletionSource = null;
             }
-        }/// <summary>
-         /// 帧到达事件处理器
-         /// </summary>
+        }
         private void OnFrameArrived(Direct3D11CaptureFramePool sender, object args)
         {
             // 如果有等待中的请求，立即满足它
