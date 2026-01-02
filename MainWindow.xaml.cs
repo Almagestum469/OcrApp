@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using CoenM.ImageHash;
 using Windows.Graphics.Capture;
 using Windows.Graphics.Imaging;
 using OcrApp.Engines;
@@ -25,7 +26,7 @@ namespace OcrApp
 
         private bool _isAutoModeEnabled = false;
         private CancellationTokenSource? _autoModeCancellationTokenSource;
-        private byte[]? _lastImageData;
+        private ulong? _lastImageHash;
         private readonly ScreenCaptureService _captureService = new();
 
         public MainWindow()
@@ -167,14 +168,11 @@ namespace OcrApp
 
             try
             {
-                var currentBitmap = await _captureService.CaptureBitmapAsync(_selectedRegion, _useSelectedRegion);
-                if (currentBitmap == null)
+                var processed = await CaptureAndProcessAsync(forceProcess: true);
+                if (!processed)
                 {
                     ResultListView.ItemsSource = new List<string> { "捕获失败：无法获取帧" };
-                    return;
                 }
-
-                EnqueueBitmapForProcessing(currentBitmap);
             }
             catch (Exception ex)
             {
@@ -314,9 +312,9 @@ namespace OcrApp
 
             _isAutoModeEnabled = true;
             _autoModeCancellationTokenSource = new CancellationTokenSource();
-            _lastImageData = null;
+            _lastImageHash = null;
 
-            _ = Task.Run(async () => await AutoModeLoopAsync(_autoModeCancellationTokenSource.Token));
+            _ = AutoModeLoopAsync(_autoModeCancellationTokenSource.Token);
         }
 
         private void StopAutoMode()
@@ -327,64 +325,19 @@ namespace OcrApp
             _autoModeCancellationTokenSource?.Cancel();
             _autoModeCancellationTokenSource?.Dispose();
             _autoModeCancellationTokenSource = null;
-            _lastImageData = null;
+            _lastImageHash = null;
         }
 
         private async Task AutoModeLoopAsync(CancellationToken cancellationToken)
         {
             try
             {
-                var firstRecognitionTask = new TaskCompletionSource<bool>();
-                DispatcherQueue.TryEnqueue(async () =>
-                {
-                    try
-                    {
-                        await CaptureAndRecognizeAsync();
-                        firstRecognitionTask.SetResult(true);
-                    }
-                    catch (Exception)
-                    {
-                        firstRecognitionTask.SetResult(false);
-                    }
-                });
-                await firstRecognitionTask.Task;
+                await CaptureAndProcessAsync(forceProcess: true, cancellationToken);
 
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     await Task.Delay(500, cancellationToken);
-
-                    var similarityTask = new TaskCompletionSource<bool>();
-                    DispatcherQueue.TryEnqueue(async () =>
-                    {
-                        try
-                        {
-                            var shouldRecognize = await CheckImageSimilarityAsync();
-                            similarityTask.SetResult(shouldRecognize);
-                        }
-                        catch (Exception)
-                        {
-                            similarityTask.SetResult(true);
-                        }
-                    });
-                    var shouldRecognize = await similarityTask.Task;
-
-                    if (shouldRecognize)
-                    {
-                        var recognitionTask = new TaskCompletionSource<bool>();
-                        DispatcherQueue.TryEnqueue(async () =>
-                        {
-                            try
-                            {
-                                await CaptureAndRecognizeAsync();
-                                recognitionTask.SetResult(true);
-                            }
-                            catch (Exception)
-                            {
-                                recognitionTask.SetResult(false);
-                            }
-                        });
-                        await recognitionTask.Task;
-                    }
+                    await CaptureAndProcessAsync(forceProcess: false, cancellationToken);
                 }
             }
             catch (OperationCanceledException)
@@ -395,38 +348,49 @@ namespace OcrApp
                 DispatcherQueue.TryEnqueue(() =>
                 {
                     AutoModeToggle.IsOn = false;
+                    ShowError("自动模式发生错误，已停止");
                 });
             }
         }
 
-        private async Task CaptureAndRecognizeAsync()
+        private async Task<bool> CaptureAndProcessAsync(bool forceProcess, CancellationToken cancellationToken = default)
         {
-            if (_captureItem == null || _ocrEngine == null) return;
-            var bitmap = await _captureService.CaptureBitmapAsync(_selectedRegion, _useSelectedRegion);
-            if (bitmap == null) return;
+            if (_captureItem == null || _ocrEngine == null) return false;
+
+            var bitmap = await _captureService.CaptureBitmapAsync(_selectedRegion, _useSelectedRegion, cancellationToken);
+            if (bitmap == null) return false;
 
             try
             {
-                _lastImageData = await ImageProcessingService.ConvertBitmapToPngBytesAsync(bitmap);
+                var currentHash = await _captureService.ComputeHashAsync(bitmap, cancellationToken);
+
+                if (!forceProcess && _lastImageHash.HasValue && currentHash.HasValue)
+                {
+                    var similarity = CompareHash.Similarity(_lastImageHash.Value, currentHash.Value);
+                    if (similarity >= 99.0)
+                    {
+                        bitmap.Dispose();
+                        return false;
+                    }
+                }
+
+                if (currentHash.HasValue)
+                {
+                    _lastImageHash = currentHash;
+                }
+
                 EnqueueBitmapForProcessing(bitmap);
+                return true;
+            }
+            catch (OperationCanceledException)
+            {
+                bitmap.Dispose();
+                throw;
             }
             catch (Exception)
             {
                 bitmap.Dispose();
-            }
-        }
-
-        private async Task<bool> CheckImageSimilarityAsync()
-        {
-            if (_lastImageData == null) return true;
-
-            try
-            {
-                return await _captureService.HasImageChangedAsync(_lastImageData, _selectedRegion, _useSelectedRegion);
-            }
-            catch (Exception)
-            {
-                return true;
+                throw;
             }
         }
     }

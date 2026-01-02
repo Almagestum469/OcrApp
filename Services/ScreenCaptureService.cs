@@ -17,7 +17,7 @@ namespace OcrApp.Services
   {
     Task<bool> InitializeAsync(GraphicsCaptureItem item);
     Task<SoftwareBitmap?> CaptureBitmapAsync(RectInt32? region, bool useRegion, CancellationToken cancellationToken = default);
-    Task<bool> HasImageChangedAsync(byte[]? lastImageData, RectInt32? region, bool useRegion, CancellationToken cancellationToken = default);
+    Task<ulong?> ComputeHashAsync(SoftwareBitmap bitmap, CancellationToken cancellationToken = default);
     event EventHandler? CaptureFailed;
   }
 
@@ -121,34 +121,20 @@ namespace OcrApp.Services
       }
     }
 
-    public async Task<bool> HasImageChangedAsync(byte[]? lastImageData, RectInt32? region, bool useRegion, CancellationToken cancellationToken = default)
+    public async Task<ulong?> ComputeHashAsync(SoftwareBitmap bitmap, CancellationToken cancellationToken = default)
     {
-      if (lastImageData == null) return true;
-
-      var bitmap = await CaptureBitmapAsync(region, useRegion, cancellationToken).ConfigureAwait(false);
-      if (bitmap == null) return false;
-
       try
       {
-        var currentImageData = await ImageProcessingService.ConvertBitmapToPngBytesAsync(bitmap).ConfigureAwait(false);
-        if (currentImageData == null) return false;
+        cancellationToken.ThrowIfCancellationRequested();
+        var imageData = await ImageProcessingService.ConvertBitmapToPngBytesAsync(bitmap).ConfigureAwait(false);
+        if (imageData == null) return null;
 
-        using var lastStream = new MemoryStream(lastImageData);
-        using var currentStream = new MemoryStream(currentImageData);
-
-        var hash1 = _hashAlgorithm.Hash(lastStream);
-        var hash2 = _hashAlgorithm.Hash(currentStream);
-        var similarity = CompareHash.Similarity(hash1, hash2);
-
-        return similarity < 99.0;
+        using var stream = new MemoryStream(imageData);
+        return _hashAlgorithm.Hash(stream);
       }
       catch
       {
-        return true;
-      }
-      finally
-      {
-        bitmap.Dispose();
+        return null;
       }
     }
 
