@@ -73,17 +73,12 @@
                 HorizontalSpacing="10"
                 Orientation="Horizontal"
                 VerticalSpacing="10">
-                <TextBlock VerticalAlignment="Center" Text="OCR引擎:" />
-                <ComboBox x:Name="OcrEngineComboBox" MinWidth="150">
-                    <ComboBoxItem Content="Windows OCR" Tag="Windows" />
-                    <ComboBoxItem Content="PaddleOCR" Tag="Paddle" />
-                </ComboBox>
                 <TextBlock
                     x:Name="EngineStatusText"
                     Margin="10,0,0,0"
                     VerticalAlignment="Center"
                     Foreground="Green"
-                    Text="准备就绪" />
+                    Text="PaddleOCR初始化中..." />
             </controls:WrapPanel>
         </Grid>
         <!--  结果区  -->
