@@ -11,6 +11,7 @@ using Windows.Graphics.Imaging;
 using Microsoft.Graphics.Canvas;
 using OcrApp.Engines;
 using OcrApp.Utils;
+using OcrApp.Tasks;
 using Windows.Storage.Streams;
 using System.Threading;
 using CoenM.ImageHash;
@@ -38,6 +39,8 @@ namespace OcrApp
         private TaskCompletionSource<Direct3D11CaptureFrame?>? _frameCompletionSource;        // 全局快捷键管理器
         private GlobalHotkeyManager? _hotkeyManager;
 
+        private OcrTaskPipeline? _taskPipeline;
+
         // 自动模式相关变量
         private bool _isAutoModeEnabled = false;
         private CancellationTokenSource? _autoModeCancellationTokenSource;
@@ -51,6 +54,8 @@ namespace OcrApp
             _ocrEngine = new PaddleOcrEngine();
             _ocrEngine.InitializeAsync();
             SetDefaultOcrEngineSelection(); // 新增调用
+
+            InitializeTaskPipeline();
 
             // 初始化快捷键管理器
             InitializeHotkeyManager();
@@ -81,6 +86,82 @@ namespace OcrApp
             _hotkeyManager.TriggerRequested += OnTriggerRequested;
         }
 
+        private void InitializeTaskPipeline()
+        {
+            _taskPipeline?.Dispose();
+            _taskPipeline = new OcrTaskPipeline(
+                () => _ocrEngine,
+                TranslateTextsAsync);
+
+            _taskPipeline.TaskUpdated += TaskPipeline_TaskUpdated;
+            _taskPipeline.PipelineError += TaskPipeline_PipelineError;
+        }
+
+        private async Task<IReadOnlyList<string>> TranslateTextsAsync(IReadOnlyList<string> texts)
+        {
+            var translations = new List<string>();
+
+            foreach (var text in texts)
+            {
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    continue;
+                }
+
+                var translated = await GoogleTranslator.TranslateEnglishToChineseAsync(text);
+                translations.Add(translated);
+            }
+
+            return translations;
+        }
+
+        private void TaskPipeline_TaskUpdated(OcrTask task)
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (task.HasError)
+                {
+                    ShowError(task.Error ?? "任务失败");
+                    SetOcrStatus("OCR失败", Microsoft.UI.Colors.Red);
+                    return;
+                }
+
+                if (task.IsOcrDone && task.OcrTexts != null)
+                {
+                    ResultListView.ItemsSource = task.OcrTexts;
+                    SetOcrStatus("OCR完成", Microsoft.UI.Colors.Green);
+
+                    // 翻译窗口可在翻译完成后使用 translations 更新
+                }
+
+                if (task.IsTranslated && task.Translations != null)
+                {
+                    _translationOverlay?.UpdateWithTranslations(task.Translations);
+                }
+            });
+        }
+
+        private void TaskPipeline_PipelineError(Exception ex)
+        {
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                UpdateDebugInfo($"任务管线异常: {ex.Message}");
+            });
+        }
+
+        private void EnqueueBitmapForProcessing(SoftwareBitmap bitmap)
+        {
+            if (_taskPipeline == null)
+            {
+                ShowError("任务管线未就绪");
+                return;
+            }
+
+            var task = new OcrTask(bitmap);
+            _taskPipeline.Enqueue(task);
+            SetOcrStatus("队列中...", Microsoft.UI.Colors.Orange);
+        }
+
         private void OnHotkeySetRequested(int vkCode)
         {
             DispatcherQueue.TryEnqueue(() =>
@@ -103,6 +184,8 @@ namespace OcrApp
         {
             // 停止自动模式
             StopAutoMode();
+
+            _taskPipeline?.Dispose();
 
             _hotkeyManager?.Dispose();
 
@@ -226,21 +309,21 @@ namespace OcrApp
                     return;
                 }
 
-                // 清理上一次的位图资源
-                _lastCapturedBitmap?.Dispose();
-                _lastCapturedBitmap = null; try
+                SoftwareBitmap? currentBitmap = null;
+                try
                 {
-                    _lastCapturedBitmap = ConvertFrameToBitmap(capturedFrame); if (_lastCapturedBitmap != null && _useSelectedRegion && _selectedRegion.HasValue)
+                    currentBitmap = ConvertFrameToBitmap(capturedFrame);
+                    if (currentBitmap != null && _useSelectedRegion && _selectedRegion.HasValue)
                     {
                         var region = _selectedRegion.Value;
                         // 确保区域有效
                         if (region.Width > 0 && region.Height > 0 &&
                             region.X >= 0 && region.Y >= 0 &&
-                            region.X + region.Width <= _lastCapturedBitmap.PixelWidth &&
-                            region.Y + region.Height <= _lastCapturedBitmap.PixelHeight)
+                            region.X + region.Width <= currentBitmap.PixelWidth &&
+                            region.Y + region.Height <= currentBitmap.PixelHeight)
                         {
                             // 裁剪图像
-                            _lastCapturedBitmap = await CropBitmapAsync(_lastCapturedBitmap, region);
+                            currentBitmap = await CropBitmapAsync(currentBitmap, region);
                         }
                         else
                         {
@@ -260,12 +343,13 @@ namespace OcrApp
                     capturedFrame.Dispose(); // 确保 capturedFrame 被释放
                 }
 
-                if (_lastCapturedBitmap == null)
+                if (currentBitmap == null)
                 {
                     ResultListView.ItemsSource = new List<string> { "位图转换失败" };
                     return;
-                }                // 执行OCR识别
-                await PerformOcrRecognitionAsync();
+                }
+
+                EnqueueBitmapForProcessing(currentBitmap);
             }
             catch (Exception ex)
             {
@@ -853,18 +937,13 @@ namespace OcrApp
                     {
                         bitmap = await CropBitmapAsync(bitmap, region);
                     }
-                }                // 保存当前图像数据用于下次比较
+                }
+
                 if (bitmap != null)
                 {
                     _lastImageData = await ConvertBitmapToPngBytesAsync(bitmap);
+                    EnqueueBitmapForProcessing(bitmap);
                 }
-
-                // 清理上一次的位图资源
-                _lastCapturedBitmap?.Dispose();
-                _lastCapturedBitmap = bitmap;
-
-                // 执行OCR识别
-                await PerformOcrRecognitionAsync();
             }
             catch (Exception ex)
             {

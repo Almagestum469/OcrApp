@@ -185,6 +185,19 @@ namespace OcrApp
         TranslationTextBlock.Text = string.Empty;
       }
     }
+
+    public void UpdateWithTranslations(System.Collections.Generic.IReadOnlyList<string> translations)
+    {
+      if (translations == null || translations.Count == 0)
+      {
+        UpdateRecognitionStatus("无翻译结果");
+        TranslationTextBlock.Text = string.Empty;
+        return;
+      }
+
+      TranslationTextBlock.Text = string.Join("\n", translations);
+      UpdateRecognitionStatus("翻译完成");
+    }
     private void PinButton_Click(object sender, RoutedEventArgs e)
     {
       // 切换置顶状态
