@@ -36,8 +36,7 @@ namespace OcrApp
         private IDirect3DDevice? _d3dDevice;
 
         // 事件驱动的帧获取相关变量
-        private TaskCompletionSource<Direct3D11CaptureFrame?>? _frameCompletionSource;        // 全局快捷键管理器
-        private GlobalHotkeyManager? _hotkeyManager;
+        private TaskCompletionSource<Direct3D11CaptureFrame?>? _frameCompletionSource;
 
         private OcrTaskPipeline? _taskPipeline;
 
@@ -57,33 +56,7 @@ namespace OcrApp
 
             InitializeTaskPipeline();
 
-            // 初始化快捷键管理器
-            InitializeHotkeyManager();
-
             this.Closed += MainWindow_Closed;
-        }
-
-        private void InitializeHotkeyManager()
-        {
-            _hotkeyManager = new GlobalHotkeyManager();
-
-            // 设置快捷键按钮和延迟滑块的初始值
-            if (HotkeyButton != null)
-            {
-                HotkeyButton.Content = GlobalHotkeyManager.GetKeyNameFromVirtualKey(_hotkeyManager.TriggerHotkeyCode);
-            }
-            if (DelaySlider != null)
-            {
-                DelaySlider.Value = _hotkeyManager.TriggerDelayMs;
-            }
-            if (DelayValueText != null)
-            {
-                DelayValueText.Text = $"{_hotkeyManager.TriggerDelayMs}ms";
-            }
-
-            // 订阅快捷键事件
-            _hotkeyManager.HotkeySetRequested += OnHotkeySetRequested;
-            _hotkeyManager.TriggerRequested += OnTriggerRequested;
         }
 
         private void InitializeTaskPipeline()
@@ -162,32 +135,12 @@ namespace OcrApp
             SetOcrStatus("队列中...", Microsoft.UI.Colors.Orange);
         }
 
-        private void OnHotkeySetRequested(int vkCode)
-        {
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                SetHotkey(vkCode);
-            });
-        }
-
-        private void OnTriggerRequested()
-        {
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                if (RecognizeButton.IsEnabled)
-                {
-                    RecognizeButton_Click(RecognizeButton, new RoutedEventArgs());
-                }
-            });
-        }
         private void MainWindow_Closed(object sender, WindowEventArgs args)
         {
             // 停止自动模式
             StopAutoMode();
 
             _taskPipeline?.Dispose();
-
-            _hotkeyManager?.Dispose();
 
             // 清理长时间维持的CaptureSession和相关资源
             _captureSession?.Dispose();
@@ -380,15 +333,9 @@ namespace OcrApp
                 {
                     _translationOverlay = null;
                     ToggleTranslationOverlayButton.Content = "翻译窗口";
-                    // 重新启用快捷键和延迟设置
-                    HotkeyButton.IsEnabled = true;
-                    DelaySlider.IsEnabled = true;
                 };
                 _translationOverlay.Activate();
                 ToggleTranslationOverlayButton.Content = "关闭翻译窗口";
-                // 禁用快捷键和延迟设置
-                HotkeyButton.IsEnabled = false;
-                DelaySlider.IsEnabled = false;
             }
             else
             {
@@ -502,50 +449,6 @@ namespace OcrApp
                 // 如果出现错误，可能是会话失效，尝试重新创建
                 UpdateDebugInfo($"设置识别区域时出现错误，尝试重新创建捕获会话: {ex.Message}");
                 CreatePersistentCaptureSession();
-            }
-        }
-        private void SetHotkey(int vkCode)
-        {
-            if (_hotkeyManager != null)
-            {
-                // 设置新的热键
-                _hotkeyManager.TriggerHotkeyCode = vkCode;
-                _hotkeyManager.IsSettingHotkey = false;
-
-                // 更新按钮显示
-                HotkeyButton.Content = GlobalHotkeyManager.GetKeyNameFromVirtualKey(vkCode);
-                HotkeyButton.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LightGray);
-            }
-        }
-
-        private void HotkeyButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (_hotkeyManager == null) return;
-
-            if (_hotkeyManager.IsSettingHotkey)
-            {
-                // 如果已经处于设置状态，则取消设置
-                _hotkeyManager.IsSettingHotkey = false;
-                HotkeyButton.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.LightGray);
-            }
-            else
-            {
-                // 进入设置状态
-                _hotkeyManager.IsSettingHotkey = true;
-                HotkeyButton.Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Orange);
-                HotkeyButton.Content = "按下按键...";
-            }
-        }
-
-        private void DelaySlider_ValueChanged(object sender, Microsoft.UI.Xaml.Controls.Primitives.RangeBaseValueChangedEventArgs e)
-        {
-            if (_hotkeyManager != null)
-            {
-                _hotkeyManager.TriggerDelayMs = (int)e.NewValue;
-                if (DelayValueText != null)
-                {
-                    DelayValueText.Text = $"{_hotkeyManager.TriggerDelayMs}ms";
-                }
             }
         }
         private void CreatePersistentCaptureSession()

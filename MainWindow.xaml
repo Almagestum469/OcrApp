@@ -84,32 +84,6 @@
                     VerticalAlignment="Center"
                     Foreground="Green"
                     Text="准备就绪" />
-                <TextBlock
-                    Margin="20,0,0,0"
-                    VerticalAlignment="Center"
-                    Text="额外触发快捷键:" />
-                <Button
-                    x:Name="HotkeyButton"
-                    MinWidth="60"
-                    Click="HotkeyButton_Click"
-                    Content="未设置" />
-
-                <TextBlock
-                    Margin="10,0,0,0"
-                    VerticalAlignment="Center"
-                    Text="触发延迟:" />
-                <Slider
-                    x:Name="DelaySlider"
-                    Width="100"
-                    Maximum="1000"
-                    Minimum="0"
-                    ValueChanged="DelaySlider_ValueChanged"
-                    Value="600" />
-                <TextBlock
-                    x:Name="DelayValueText"
-                    MinWidth="50"
-                    VerticalAlignment="Center"
-                    Text="600ms" />
             </controls:WrapPanel>
         </Grid>
         <!--  结果区  -->
