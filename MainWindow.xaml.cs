@@ -6,7 +6,6 @@ using Microsoft.UI.Xaml.Controls;
 using Windows.Graphics.Capture;
 using Windows.Graphics.Imaging;
 using OcrApp.Engines;
-using OcrApp.Utils;
 using OcrApp.Tasks;
 using OcrApp.Services;
 using System.Threading;
@@ -67,29 +66,10 @@ namespace OcrApp
         {
             _taskPipeline?.Dispose();
             _taskPipeline = new OcrTaskPipeline(
-                () => _ocrEngine,
-                TranslateTextsAsync);
+                () => _ocrEngine);
 
             _taskPipeline.TaskUpdated += TaskPipeline_TaskUpdated;
             _taskPipeline.PipelineError += TaskPipeline_PipelineError;
-        }
-
-        private async Task<IReadOnlyList<string>> TranslateTextsAsync(IReadOnlyList<string> texts)
-        {
-            var translations = new List<string>();
-
-            foreach (var text in texts)
-            {
-                if (string.IsNullOrWhiteSpace(text))
-                {
-                    continue;
-                }
-
-                var translated = await GoogleTranslator.TranslateEnglishToChineseAsync(text);
-                translations.Add(translated);
-            }
-
-            return translations;
         }
 
         private void TaskPipeline_TaskUpdated(OcrTask task)

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using OcrApp.Engines;
+using OcrApp.Utils;
 
 namespace OcrApp.Tasks
 {
@@ -13,15 +14,12 @@ namespace OcrApp.Tasks
     private readonly SemaphoreSlim _signal = new(0);
     private readonly CancellationTokenSource _cts = new();
     private readonly Func<IOcrEngine?> _ocrEngineProvider;
-    private readonly Func<IReadOnlyList<string>, Task<IReadOnlyList<string>>> _translateAsync;
     private readonly Task _worker;
 
     public OcrTaskPipeline(
-        Func<IOcrEngine?> ocrEngineProvider,
-        Func<IReadOnlyList<string>, Task<IReadOnlyList<string>>> translateAsync)
+        Func<IOcrEngine?> ocrEngineProvider)
     {
       _ocrEngineProvider = ocrEngineProvider;
-      _translateAsync = translateAsync;
       _worker = Task.Run(() => RunAsync(_cts.Token));
     }
 
@@ -84,21 +82,20 @@ namespace OcrApp.Tasks
         cancellationToken.ThrowIfCancellationRequested();
 
         task.OcrTexts = ocrResults;
+        task.ReleaseImage();
         TaskUpdated?.Invoke(task);
 
         if (ocrResults == null || ocrResults.Count == 0)
         {
           task.Translations = Array.Empty<string>();
-          task.ReleaseImage();
           TaskUpdated?.Invoke(task);
           return;
         }
 
-        var translations = await _translateAsync(ocrResults);
+        var translations = await TranslateTextsAsync(ocrResults, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
 
         task.Translations = translations;
-        task.ReleaseImage();
         TaskUpdated?.Invoke(task);
       }
       catch (OperationCanceledException)
@@ -111,6 +108,31 @@ namespace OcrApp.Tasks
         task.ReleaseImage();
         TaskUpdated?.Invoke(task);
       }
+    }
+
+    private static async Task<IReadOnlyList<string>> TranslateTextsAsync(
+        IReadOnlyList<string> texts,
+        CancellationToken cancellationToken)
+    {
+      var translations = new List<string>();
+
+      foreach (var text in texts)
+      {
+        if (cancellationToken.IsCancellationRequested)
+        {
+          break;
+        }
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+          continue;
+        }
+
+        var translated = await GoogleTranslator.TranslateEnglishToChineseAsync(text);
+        translations.Add(translated);
+      }
+
+      return translations;
     }
 
     public void Dispose()
