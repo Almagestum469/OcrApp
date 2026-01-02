@@ -4,42 +4,30 @@ using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.Graphics.Capture;
-using Windows.Graphics.DirectX;
-using Windows.Graphics.DirectX.Direct3D11;
 using Windows.Graphics.Imaging;
-using Microsoft.Graphics.Canvas;
 using OcrApp.Engines;
 using OcrApp.Utils;
 using OcrApp.Tasks;
 using OcrApp.Services;
 using System.Threading;
-using CoenM.ImageHash;
-using CoenM.ImageHash.HashAlgorithms;
-using System.IO;
 
 namespace OcrApp
 {
     public sealed partial class MainWindow
     {
         private GraphicsCaptureItem? _captureItem;
-        private SoftwareBitmap? _lastCapturedBitmap;
         private IOcrEngine? _ocrEngine;
         private TranslationOverlay? _translationOverlay;
 
         private Windows.Graphics.RectInt32? _selectedRegion;
         private bool _useSelectedRegion;
-        private Direct3D11CaptureFramePool? _framePool;
-        private GraphicsCaptureSession? _captureSession;
-        private IDirect3DDevice? _d3dDevice;
-
-        private TaskCompletionSource<Direct3D11CaptureFrame?>? _frameCompletionSource;
 
         private OcrTaskPipeline? _taskPipeline;
 
         private bool _isAutoModeEnabled = false;
         private CancellationTokenSource? _autoModeCancellationTokenSource;
         private byte[]? _lastImageData;
-        private readonly IImageHash _hashAlgorithm = new PerceptualHash();
+        private readonly ScreenCaptureService _captureService = new();
 
         public MainWindow()
         {
@@ -48,6 +36,11 @@ namespace OcrApp
             InitializePaddleEngineAsync();
 
             InitializeTaskPipeline();
+
+            _captureService.CaptureFailed += (s, e) =>
+            {
+                DispatcherQueue.TryEnqueue(() => ShowError("捕获会话创建失败"));
+            };
 
             Closed += MainWindow_Closed;
         }
@@ -148,11 +141,7 @@ namespace OcrApp
             StopAutoMode();
 
             _taskPipeline?.Dispose();
-
-            _captureSession?.Dispose();
-            _framePool?.Dispose();
-            _lastCapturedBitmap?.Dispose();
-            _d3dDevice = null;
+            _captureService.Dispose();
         }
 
         private async void SelectCaptureItemButton_Click(object sender, RoutedEventArgs e)
@@ -168,18 +157,18 @@ namespace OcrApp
                 RecognizeButton.IsEnabled = true;
                 SelectRegionButton.IsEnabled = true;
 
-                CreatePersistentCaptureSession();
+                var sessionCreated = await _captureService.InitializeAsync(_captureItem);
+                if (!sessionCreated)
+                {
+                    ResultListView.ItemsSource = new List<string> { "捕获会话创建失败" };
+                }
             }
             else
             {
                 ResultListView.ItemsSource = new List<string> { "未选择捕获源" };
                 RecognizeButton.IsEnabled = false;
                 SelectRegionButton.IsEnabled = false;
-
-                _captureSession?.Dispose();
-                _framePool?.Dispose();
-                _captureSession = null;
-                _framePool = null;
+                _captureService.Dispose();
             }
         }
 
@@ -196,54 +185,12 @@ namespace OcrApp
                 return;
             }
 
-            if (_framePool == null || _captureSession == null)
-            {
-                CreatePersistentCaptureSession();
-                if (_framePool == null || _captureSession == null)
-                {
-                    ResultListView.ItemsSource = new List<string> { "捕获会话创建失败" };
-                    return;
-                }
-            }
             try
             {
-                var capturedFrame = await GetLatestFrameAsync();
-                if (capturedFrame == null)
-                {
-                    ResultListView.ItemsSource = new List<string> { "捕获失败：无法获取帧" };
-                    return;
-                }
-
-                SoftwareBitmap? currentBitmap = null;
-                try
-                {
-                    currentBitmap = ImageProcessingService.ConvertFrameToBitmap(capturedFrame);
-                    if (currentBitmap != null && _useSelectedRegion && _selectedRegion.HasValue)
-                    {
-                        var region = _selectedRegion.Value;
-                        if (region.Width > 0 && region.Height > 0 &&
-                            region.X >= 0 && region.Y >= 0 &&
-                            region.X + region.Width <= currentBitmap.PixelWidth &&
-                            region.Y + region.Height <= currentBitmap.PixelHeight)
-                        {
-                            currentBitmap = await ImageProcessingService.CropBitmapAsync(currentBitmap, region);
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    ResultListView.ItemsSource = new List<string> { $"转换位图失败: {ex.Message}" };
-                    capturedFrame.Dispose();
-                    return;
-                }
-                finally
-                {
-                    capturedFrame.Dispose();
-                }
-
+                var currentBitmap = await _captureService.CaptureBitmapAsync(_selectedRegion, _useSelectedRegion);
                 if (currentBitmap == null)
                 {
-                    ResultListView.ItemsSource = new List<string> { "位图转换失败" };
+                    ResultListView.ItemsSource = new List<string> { "捕获失败：无法获取帧" };
                     return;
                 }
 
@@ -253,8 +200,6 @@ namespace OcrApp
             {
                 ShowError($"发生错误: {ex.Message}");
                 SetOcrStatus("OCR失败", Microsoft.UI.Colors.Red);
-
-                CreatePersistentCaptureSession();
             }
         }
 
@@ -298,39 +243,9 @@ namespace OcrApp
                 return;
             }
 
-            if (_framePool == null || _captureSession == null)
-            {
-                CreatePersistentCaptureSession();
-                if (_framePool == null || _captureSession == null)
-                {
-                    ResultListView.ItemsSource = new List<string> { "捕获会话创建失败" };
-                    return;
-                }
-            }
             try
             {
-                var capturedFrame = await GetLatestFrameAsync();
-                if (capturedFrame == null)
-                {
-                    ResultListView.ItemsSource = new List<string> { "捕获失败：无法获取帧" };
-                    return;
-                }
-
-                SoftwareBitmap? previewBitmap = null;
-                try
-                {
-                    previewBitmap = ImageProcessingService.ConvertFrameToBitmap(capturedFrame);
-                }
-                catch (Exception ex)
-                {
-                    ResultListView.ItemsSource = new List<string> { $"转换位图失败: {ex.Message}" };
-                    capturedFrame.Dispose();
-                    return;
-                }
-                finally
-                {
-                    capturedFrame.Dispose();
-                }
+                var previewBitmap = await _captureService.CaptureBitmapAsync(null, false);
 
                 if (previewBitmap == null)
                 {
@@ -382,102 +297,6 @@ namespace OcrApp
             catch (Exception ex)
             {
                 ResultListView.ItemsSource = new List<string> { $"设置识别区域时出错: {ex.Message}" };
-                CreatePersistentCaptureSession();
-            }
-        }
-
-        private void CreatePersistentCaptureSession()
-        {
-            if (_captureItem == null) return;
-
-            try
-            {
-                _captureSession?.Dispose();
-                _framePool?.Dispose();
-
-                var canvasDevice = CanvasDevice.GetSharedDevice();
-                if (canvasDevice is not IDirect3DDevice d3dDevice)
-                {
-                    return;
-                }
-
-                _d3dDevice = d3dDevice;
-                _framePool = Direct3D11CaptureFramePool.Create(
-                    d3dDevice,
-                    DirectXPixelFormat.B8G8R8A8UIntNormalized,
-                    1,
-                    _captureItem.Size);
-
-                _framePool.FrameArrived += OnFrameArrived;
-
-                _captureSession = _framePool.CreateCaptureSession(_captureItem);
-
-                try
-                {
-                    _captureSession.IsCursorCaptureEnabled = false;
-                }
-                catch
-                {
-                }
-
-                _captureSession.StartCapture();
-            }
-            catch (Exception)
-            {
-                _captureSession?.Dispose();
-                _framePool?.Dispose();
-                _captureSession = null;
-                _framePool = null;
-            }
-        }
-
-        private async Task<Direct3D11CaptureFrame?> GetLatestFrameAsync()
-        {
-            if (_framePool == null)
-                return null;
-
-            Direct3D11CaptureFrame? latestFrame = null;
-            Direct3D11CaptureFrame? currentFrame;
-
-            while ((currentFrame = _framePool.TryGetNextFrame()) != null)
-            {
-                latestFrame?.Dispose();
-                latestFrame = currentFrame;
-            }
-
-            if (latestFrame != null)
-                return latestFrame;
-
-            _frameCompletionSource = new TaskCompletionSource<Direct3D11CaptureFrame?>();
-
-            try
-            {
-                using var cts = new System.Threading.CancellationTokenSource(1000);
-                cts.Token.Register(() => _frameCompletionSource?.TrySetResult(null));
-
-                return await _frameCompletionSource.Task;
-            }
-            finally
-            {
-                _frameCompletionSource = null;
-            }
-        }
-
-        private void OnFrameArrived(Direct3D11CaptureFramePool sender, object args)
-        {
-            if (_frameCompletionSource != null)
-            {
-                var frame = sender.TryGetNextFrame();
-                _frameCompletionSource.SetResult(frame);
-                _frameCompletionSource = null;
-            }
-            else
-            {
-                Direct3D11CaptureFrame? frame;
-                while ((frame = sender.TryGetNextFrame()) != null)
-                {
-                    frame.Dispose();
-                }
             }
         }
 
@@ -492,41 +311,6 @@ namespace OcrApp
         private void ShowError(string message)
         {
             ResultListView.ItemsSource = new List<string> { message };
-        }
-
-        private bool EnsureCaptureSession()
-        {
-            if (_framePool != null && _captureSession != null)
-                return true;
-
-            CreatePersistentCaptureSession();
-
-            if (_framePool == null || _captureSession == null)
-            {
-                ShowError("捕获会话创建失败");
-                return false;
-            }
-
-            return true;
-        }
-
-        private async Task PerformOcrRecognitionAsync()
-        {
-            if (_lastCapturedBitmap == null || _ocrEngine == null)
-                return;
-
-            const string statusMessage = "PaddleOCR识别中...";
-            SetOcrStatus(statusMessage, Microsoft.UI.Colors.Orange);
-
-            var results = await _ocrEngine.RecognizeAsync(_lastCapturedBitmap);
-
-            SetOcrStatus("PaddleOCR就绪", Microsoft.UI.Colors.Green);
-            ResultListView.ItemsSource = results;
-
-            if (_translationOverlay != null && results != null && results.Count > 0)
-            {
-                _translationOverlay.UpdateWithOcrResults(results);
-            }
         }
 
         private void AutoModeToggle_Toggled(object sender, RoutedEventArgs e)
@@ -638,43 +422,17 @@ namespace OcrApp
         private async Task CaptureAndRecognizeAsync()
         {
             if (_captureItem == null || _ocrEngine == null) return;
+            var bitmap = await _captureService.CaptureBitmapAsync(_selectedRegion, _useSelectedRegion);
+            if (bitmap == null) return;
 
-            if (!EnsureCaptureSession()) return;
-
-            var capturedFrame = await GetLatestFrameAsync();
-            if (capturedFrame == null) return;
-
-            SoftwareBitmap? bitmap = null;
             try
             {
-                bitmap = ImageProcessingService.ConvertFrameToBitmap(capturedFrame);
-                if (bitmap == null) return;
-
-                if (_useSelectedRegion && _selectedRegion.HasValue)
-                {
-                    var region = _selectedRegion.Value;
-                    if (region.Width > 0 && region.Height > 0 &&
-                        region.X >= 0 && region.Y >= 0 &&
-                        region.X + region.Width <= bitmap.PixelWidth &&
-                        region.Y + region.Height <= bitmap.PixelHeight)
-                    {
-                        bitmap = await ImageProcessingService.CropBitmapAsync(bitmap, region);
-                    }
-                }
-
-                if (bitmap != null)
-                {
-                    _lastImageData = await ImageProcessingService.ConvertBitmapToPngBytesAsync(bitmap);
-                    EnqueueBitmapForProcessing(bitmap);
-                }
+                _lastImageData = await ImageProcessingService.ConvertBitmapToPngBytesAsync(bitmap);
+                EnqueueBitmapForProcessing(bitmap);
             }
             catch (Exception)
             {
-                bitmap?.Dispose();
-            }
-            finally
-            {
-                capturedFrame.Dispose();
+                bitmap.Dispose();
             }
         }
 
@@ -682,47 +440,13 @@ namespace OcrApp
         {
             if (_lastImageData == null) return true;
 
-            var capturedFrame = await GetLatestFrameAsync();
-            if (capturedFrame == null) return false;
-
-            SoftwareBitmap? bitmap = null;
             try
             {
-                bitmap = ImageProcessingService.ConvertFrameToBitmap(capturedFrame);
-                if (bitmap == null) return false;
-
-                if (_useSelectedRegion && _selectedRegion.HasValue)
-                {
-                    var region = _selectedRegion.Value;
-                    if (region.Width > 0 && region.Height > 0 &&
-                        region.X >= 0 && region.Y >= 0 &&
-                        region.X + region.Width <= bitmap.PixelWidth &&
-                        region.Y + region.Height <= bitmap.PixelHeight)
-                    {
-                        bitmap = await ImageProcessingService.CropBitmapAsync(bitmap, region);
-                    }
-                }
-
-                var currentImageData = bitmap != null ? await ImageProcessingService.ConvertBitmapToPngBytesAsync(bitmap) : null;
-                if (currentImageData == null) return false;
-
-                using var lastStream = new MemoryStream(_lastImageData);
-                using var currentStream = new MemoryStream(currentImageData);
-
-                var hash1 = _hashAlgorithm.Hash(lastStream);
-                var hash2 = _hashAlgorithm.Hash(currentStream);
-                var similarity = CompareHash.Similarity(hash1, hash2);
-
-                return similarity < 99.0;
+                return await _captureService.HasImageChangedAsync(_lastImageData, _selectedRegion, _useSelectedRegion);
             }
             catch (Exception)
             {
                 return true;
-            }
-            finally
-            {
-                bitmap?.Dispose();
-                capturedFrame.Dispose();
             }
         }
     }
