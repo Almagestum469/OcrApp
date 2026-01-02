@@ -12,6 +12,7 @@ using Microsoft.Graphics.Canvas;
 using OcrApp.Engines;
 using OcrApp.Utils;
 using OcrApp.Tasks;
+using OcrApp.Services;
 using Windows.Storage.Streams;
 using System.Threading;
 using CoenM.ImageHash;
@@ -56,7 +57,7 @@ namespace OcrApp
 
             InitializeTaskPipeline();
 
-            this.Closed += MainWindow_Closed;
+            Closed += MainWindow_Closed;
         }
 
         private void InitializeTaskPipeline()
@@ -258,7 +259,7 @@ namespace OcrApp
                 SoftwareBitmap? currentBitmap = null;
                 try
                 {
-                    currentBitmap = ConvertFrameToBitmap(capturedFrame);
+                    currentBitmap = ImageProcessingService.ConvertFrameToBitmap(capturedFrame);
                     if (currentBitmap != null && _useSelectedRegion && _selectedRegion.HasValue)
                     {
                         var region = _selectedRegion.Value;
@@ -269,7 +270,7 @@ namespace OcrApp
                             region.Y + region.Height <= currentBitmap.PixelHeight)
                         {
                             // 裁剪图像
-                            currentBitmap = await CropBitmapAsync(currentBitmap, region);
+                            currentBitmap = await ImageProcessingService.CropBitmapAsync(currentBitmap, region);
                         }
                     }
                 }
@@ -363,7 +364,7 @@ namespace OcrApp
                 SoftwareBitmap? previewBitmap = null;
                 try
                 {
-                    previewBitmap = ConvertFrameToBitmap(capturedFrame);
+                    previewBitmap = ImageProcessingService.ConvertFrameToBitmap(capturedFrame);
                 }
                 catch (Exception ex)
                 {
@@ -540,66 +541,9 @@ namespace OcrApp
                     frame.Dispose(); // 释放不需要的帧
                 }
             }
-        }        // 帮助方法：从捕获帧转换为SoftwareBitmap
-        private SoftwareBitmap? ConvertFrameToBitmap(Direct3D11CaptureFrame capturedFrame)
-        {
-            try
-            {
-                using var canvasBitmap = CanvasBitmap.CreateFromDirect3D11Surface(
-                    CanvasDevice.GetSharedDevice(), capturedFrame.Surface);
-                var pixelBytes = canvasBitmap.GetPixelBytes();
-                var bitmap = new SoftwareBitmap(
-                    BitmapPixelFormat.Bgra8,
-                    (int)canvasBitmap.SizeInPixels.Width,
-                    (int)canvasBitmap.SizeInPixels.Height,
-                    BitmapAlphaMode.Premultiplied);
-                bitmap.CopyFromBuffer(pixelBytes.AsBuffer());
-                return bitmap;
-            }
-            catch (Exception)
-            {
-                return null;
-            }
         }
 
-        // 帮助方法：裁剪位图
-        private async Task<SoftwareBitmap?> CropBitmapAsync(SoftwareBitmap sourceBitmap, Windows.Graphics.RectInt32 region)
-        {
-            try
-            {
-                // 验证区域有效性
-                if (region.Width <= 0 || region.Height <= 0 ||
-                    region.X < 0 || region.Y < 0 ||
-                    region.X + region.Width > sourceBitmap.PixelWidth ||
-                    region.Y + region.Height > sourceBitmap.PixelHeight)
-                {
-                    return sourceBitmap;
-                }
-
-                using var ms = new InMemoryRandomAccessStream();
-                var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, ms);
-                encoder.SetSoftwareBitmap(sourceBitmap);
-                encoder.BitmapTransform.Bounds = new Windows.Graphics.Imaging.BitmapBounds
-                {
-                    X = (uint)region.X,
-                    Y = (uint)region.Y,
-                    Width = (uint)region.Width,
-                    Height = (uint)region.Height
-                };
-
-                await encoder.FlushAsync();
-                ms.Seek(0);
-
-                var decoder = await BitmapDecoder.CreateAsync(ms);
-                var croppedBitmap = await decoder.GetSoftwareBitmapAsync();
-
-                return croppedBitmap;
-            }
-            catch (Exception)
-            {
-                return sourceBitmap; // 返回原图
-            }
-        }        // 帮助方法：设置OCR状态
+        // 帮助方法：设置OCR状态
         private void SetOcrStatus(string status, Windows.UI.Color color)
         {
             EngineStatusText.Text = status;
@@ -793,7 +737,7 @@ namespace OcrApp
             SoftwareBitmap? bitmap = null;
             try
             {
-                bitmap = ConvertFrameToBitmap(capturedFrame);
+                bitmap = ImageProcessingService.ConvertFrameToBitmap(capturedFrame);
                 if (bitmap == null) return;
 
                 // 应用区域裁剪
@@ -805,13 +749,13 @@ namespace OcrApp
                         region.X + region.Width <= bitmap.PixelWidth &&
                         region.Y + region.Height <= bitmap.PixelHeight)
                     {
-                        bitmap = await CropBitmapAsync(bitmap, region);
+                        bitmap = await ImageProcessingService.CropBitmapAsync(bitmap, region);
                     }
                 }
 
                 if (bitmap != null)
                 {
-                    _lastImageData = await ConvertBitmapToPngBytesAsync(bitmap);
+                    _lastImageData = await ImageProcessingService.ConvertBitmapToPngBytesAsync(bitmap);
                     EnqueueBitmapForProcessing(bitmap);
                 }
             }
@@ -837,7 +781,7 @@ namespace OcrApp
             SoftwareBitmap? bitmap = null;
             try
             {
-                bitmap = ConvertFrameToBitmap(capturedFrame);
+                bitmap = ImageProcessingService.ConvertFrameToBitmap(capturedFrame);
                 if (bitmap == null) return false;
 
                 // 应用区域裁剪
@@ -849,10 +793,10 @@ namespace OcrApp
                         region.X + region.Width <= bitmap.PixelWidth &&
                         region.Y + region.Height <= bitmap.PixelHeight)
                     {
-                        bitmap = await CropBitmapAsync(bitmap, region);
+                        bitmap = await ImageProcessingService.CropBitmapAsync(bitmap, region);
                     }
                 }                // 转换为PNG字节数组
-                var currentImageData = bitmap != null ? await ConvertBitmapToPngBytesAsync(bitmap) : null;
+                var currentImageData = bitmap != null ? await ImageProcessingService.ConvertBitmapToPngBytesAsync(bitmap) : null;
                 if (currentImageData == null) return false;
 
                 // 计算图像哈希并比较相似度
@@ -873,26 +817,6 @@ namespace OcrApp
             {
                 bitmap?.Dispose();
                 capturedFrame.Dispose();
-            }
-        }        // 将SoftwareBitmap转换为PNG字节数组
-        private async Task<byte[]?> ConvertBitmapToPngBytesAsync(SoftwareBitmap bitmap)
-        {
-            try
-            {
-                using var stream = new InMemoryRandomAccessStream();
-                var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, stream);
-                encoder.SetSoftwareBitmap(bitmap);
-                await encoder.FlushAsync();
-
-                stream.Seek(0);
-                var buffer = new byte[stream.Size];
-                var reader = stream.AsStreamForRead();
-                await reader.ReadAsync(buffer, 0, buffer.Length);
-                return buffer;
-            }
-            catch (Exception)
-            {
-                return null;
             }
         }
     }
