@@ -118,7 +118,6 @@ namespace OcrApp
         {
             DispatcherQueue.TryEnqueue(() =>
             {
-                UpdateDebugInfo($"任务管线异常: {ex.Message}");
             });
         }
 
@@ -163,12 +162,6 @@ namespace OcrApp
             }
         }
 
-        private void UpdateDebugInfo(string debugInfo)
-        {
-            // DebugTextBlock.Text = debugInfo;
-            // DebugScrollViewer.UpdateLayout();
-            // DebugScrollViewer.ScrollToVerticalOffset(DebugScrollViewer.ScrollableHeight);
-        }
         private async void OcrEngineComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             var selectedItem = OcrEngineComboBox.SelectedItem as ComboBoxItem;
@@ -278,11 +271,6 @@ namespace OcrApp
                             // 裁剪图像
                             currentBitmap = await CropBitmapAsync(currentBitmap, region);
                         }
-                        else
-                        {
-                            // 区域无效，使用全图
-                            UpdateDebugInfo("选定区域无效，使用全图");
-                        }
                     }
                 }
                 catch (Exception ex)
@@ -309,7 +297,6 @@ namespace OcrApp
                 ShowError($"发生错误: {ex.Message}");
                 SetOcrStatus("OCR失败", Microsoft.UI.Colors.Red);
 
-                UpdateDebugInfo($"OCR过程中出现错误，尝试重新创建捕获会话: {ex.Message}");
                 CreatePersistentCaptureSession();
             }
         }
@@ -447,7 +434,6 @@ namespace OcrApp
             {
                 ResultListView.ItemsSource = new List<string> { $"设置识别区域时出错: {ex.Message}" };
                 // 如果出现错误，可能是会话失效，尝试重新创建
-                UpdateDebugInfo($"设置识别区域时出现错误，尝试重新创建捕获会话: {ex.Message}");
                 CreatePersistentCaptureSession();
             }
         }
@@ -465,7 +451,6 @@ namespace OcrApp
                 var canvasDevice = CanvasDevice.GetSharedDevice();
                 if (canvasDevice is not IDirect3DDevice d3dDevice)
                 {
-                    UpdateDebugInfo("无法获取 Direct3D 设备");
                     return;
                 }
 
@@ -493,11 +478,9 @@ namespace OcrApp
 
                 // 启动捕获会话
                 _captureSession.StartCapture();
-                UpdateDebugInfo("已创建持久化捕获会话（事件驱动模式）");
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                UpdateDebugInfo($"创建持久化捕获会话失败: {ex.Message}");
                 // 清理失败的资源
                 _captureSession?.Dispose();
                 _framePool?.Dispose();
@@ -573,9 +556,8 @@ namespace OcrApp
                 bitmap.CopyFromBuffer(pixelBytes.AsBuffer());
                 return bitmap;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                UpdateDebugInfo($"位图转换失败: {ex.Message}");
                 return null;
             }
         }
@@ -591,7 +573,6 @@ namespace OcrApp
                     region.X + region.Width > sourceBitmap.PixelWidth ||
                     region.Y + region.Height > sourceBitmap.PixelHeight)
                 {
-                    UpdateDebugInfo("选定区域无效，使用全图");
                     return sourceBitmap;
                 }
 
@@ -612,12 +593,10 @@ namespace OcrApp
                 var decoder = await BitmapDecoder.CreateAsync(ms);
                 var croppedBitmap = await decoder.GetSoftwareBitmapAsync();
 
-                UpdateDebugInfo($"已应用区域裁剪: X={region.X}, Y={region.Y}, 宽={region.Width}, 高={region.Height}");
                 return croppedBitmap;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                UpdateDebugInfo($"裁剪失败: {ex.Message}");
                 return sourceBitmap; // 返回原图
             }
         }        // 帮助方法：设置OCR状态
@@ -664,18 +643,14 @@ namespace OcrApp
             {
                 statusMessage = "PaddleOCR识别中...";
                 SetOcrStatus(statusMessage, Microsoft.UI.Colors.Orange);
-                UpdateDebugInfo("开始使用PaddleOCR识别...");
             }
             else
             {
                 statusMessage = "Windows OCR识别中...";
                 SetOcrStatus(statusMessage, Microsoft.UI.Colors.Orange);
-                UpdateDebugInfo("开始使用Windows OCR识别...");
             }
 
             var results = await _ocrEngine.RecognizeAsync(_lastCapturedBitmap);
-            var debugInfo = _ocrEngine.GenerateDebugInfo();
-            UpdateDebugInfo(debugInfo);
 
             statusMessage = _currentEngineType == "Paddle" ? "PaddleOCR就绪" : "Windows OCR就绪";
             SetOcrStatus(statusMessage, Microsoft.UI.Colors.Green);
@@ -713,8 +688,6 @@ namespace OcrApp
             _autoModeCancellationTokenSource = new CancellationTokenSource();
             _lastImageData = null; // 重置上次图像数据
 
-            UpdateDebugInfo("自动模式已启动");
-
             // 启动自动模式协程
             _ = Task.Run(async () => await AutoModeLoopAsync(_autoModeCancellationTokenSource.Token));
         }
@@ -729,8 +702,6 @@ namespace OcrApp
             _autoModeCancellationTokenSource?.Dispose();
             _autoModeCancellationTokenSource = null;
             _lastImageData = null;
-
-            UpdateDebugInfo("自动模式已停止");
         }        // 自动模式主循环
         private async Task AutoModeLoopAsync(CancellationToken cancellationToken)
         {
@@ -745,9 +716,8 @@ namespace OcrApp
                         await CaptureAndRecognizeAsync();
                         firstRecognitionTask.SetResult(true);
                     }
-                    catch (Exception ex)
+                    catch (Exception)
                     {
-                        UpdateDebugInfo($"自动模式首次识别失败: {ex.Message}");
                         firstRecognitionTask.SetResult(false);
                     }
                 });
@@ -767,9 +737,8 @@ namespace OcrApp
                             var shouldRecognize = await CheckImageSimilarityAsync();
                             similarityTask.SetResult(shouldRecognize);
                         }
-                        catch (Exception ex)
+                        catch (Exception)
                         {
-                            UpdateDebugInfo($"自动模式图像比较失败: {ex.Message}");
                             similarityTask.SetResult(true); // 出错时继续识别
                         }
                     });
@@ -786,9 +755,8 @@ namespace OcrApp
                                 await CaptureAndRecognizeAsync();
                                 recognitionTask.SetResult(true);
                             }
-                            catch (Exception ex)
+                            catch (Exception)
                             {
-                                UpdateDebugInfo($"自动模式识别失败: {ex.Message}");
                                 recognitionTask.SetResult(false);
                             }
                         });
@@ -800,11 +768,10 @@ namespace OcrApp
             {
                 // 正常取消，不需要处理
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 DispatcherQueue.TryEnqueue(() =>
                 {
-                    UpdateDebugInfo($"自动模式异常退出: {ex.Message}");
                     // 自动停止自动模式
                     AutoModeToggle.IsOn = false;
                 });
@@ -848,9 +815,8 @@ namespace OcrApp
                     EnqueueBitmapForProcessing(bitmap);
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                UpdateDebugInfo($"自动模式捕获识别失败: {ex.Message}");
                 bitmap?.Dispose();
             }
             finally
@@ -896,14 +862,11 @@ namespace OcrApp
                 var hash1 = _hashAlgorithm.Hash(lastStream);
                 var hash2 = _hashAlgorithm.Hash(currentStream); var similarity = CompareHash.Similarity(hash1, hash2);
 
-                UpdateDebugInfo($"图像相似度: {similarity:F2}%");
-
                 // 如果相似度小于95%，则需要重新识别
                 return similarity < 99.0;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                UpdateDebugInfo($"图像相似度比较失败: {ex.Message}");
                 return true; // 出错时继续识别
             }
             finally
@@ -927,9 +890,8 @@ namespace OcrApp
                 await reader.ReadAsync(buffer, 0, buffer.Length);
                 return buffer;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                UpdateDebugInfo($"转换位图为PNG失败: {ex.Message}");
                 return null;
             }
         }
