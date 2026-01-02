@@ -7,7 +7,7 @@ using OcrApp.Engines;
 
 namespace OcrApp.Tasks
 {
-  internal sealed class OcrTaskPipeline : IDisposable
+  internal sealed partial class OcrTaskPipeline : IDisposable
   {
     private readonly ConcurrentQueue<OcrTask> _queue = new();
     private readonly SemaphoreSlim _signal = new(0);

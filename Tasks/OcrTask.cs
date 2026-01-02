@@ -4,18 +4,11 @@ using Windows.Graphics.Imaging;
 
 namespace OcrApp.Tasks
 {
-  internal sealed class OcrTask
+  internal sealed class OcrTask(SoftwareBitmap image)
   {
-    public OcrTask(SoftwareBitmap image)
-    {
-      Id = Guid.NewGuid();
-      CreatedAt = DateTimeOffset.UtcNow;
-      Image = image;
-    }
-
-    public Guid Id { get; }
-    public DateTimeOffset CreatedAt { get; }
-    public SoftwareBitmap? Image { get; set; }
+    public Guid Id { get; } = Guid.NewGuid();
+    public DateTimeOffset CreatedAt { get; } = DateTimeOffset.UtcNow;
+    public SoftwareBitmap? Image { get; set; } = image;
     public IReadOnlyList<string>? OcrTexts { get; set; }
     public IReadOnlyList<string>? Translations { get; set; }
     public string? Error { get; set; }

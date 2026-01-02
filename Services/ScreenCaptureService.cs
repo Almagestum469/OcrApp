@@ -62,7 +62,9 @@ namespace OcrApp.Services
 
         try
         {
+#pragma warning disable CA1416 // 验证平台兼容性
           _captureSession.IsCursorCaptureEnabled = false;
+#pragma warning restore CA1416 // 验证平台兼容性
         }
         catch
         {
