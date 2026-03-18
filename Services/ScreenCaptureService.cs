@@ -23,13 +23,16 @@ namespace OcrApp.Services
 
   public sealed class ScreenCaptureService : IScreenCaptureService
   {
+    private const int FrameWaitTimeoutMs = 1000;
     private GraphicsCaptureItem? _captureItem;
     private Direct3D11CaptureFramePool? _framePool;
     private GraphicsCaptureSession? _captureSession;
     private IDirect3DDevice? _d3dDevice;
     private TaskCompletionSource<Direct3D11CaptureFrame?>? _frameCompletionSource;
+    private readonly SemaphoreSlim _reinitializeLock = new(1, 1);
     private readonly IImageHash _hashAlgorithm = new PerceptualHash();
     private bool _initialized;
+    private bool _disposed;
 
     public event EventHandler? CaptureFailed;
 
@@ -39,6 +42,10 @@ namespace OcrApp.Services
 
       try
       {
+        if (_framePool != null)
+        {
+          _framePool.FrameArrived -= OnFrameArrived;
+        }
         _captureSession?.Dispose();
         _framePool?.Dispose();
 
@@ -94,6 +101,14 @@ namespace OcrApp.Services
       }
 
       var capturedFrame = await GetLatestFrameAsync(cancellationToken).ConfigureAwait(false);
+      if (capturedFrame == null)
+      {
+        var recovered = await TryRecoverCaptureSessionAsync(cancellationToken).ConfigureAwait(false);
+        if (recovered)
+        {
+          capturedFrame = await GetLatestFrameAsync(cancellationToken).ConfigureAwait(false);
+        }
+      }
       if (capturedFrame == null) return null;
 
       try
@@ -158,7 +173,7 @@ namespace OcrApp.Services
       _frameCompletionSource = new TaskCompletionSource<Direct3D11CaptureFrame?>(TaskCreationOptions.RunContinuationsAsynchronously);
 
       using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-      using var timeoutCts = new CancellationTokenSource(1000);
+      using var timeoutCts = new CancellationTokenSource(FrameWaitTimeoutMs);
       using var combinedCts = CancellationTokenSource.CreateLinkedTokenSource(cts.Token, timeoutCts.Token);
       using var reg = combinedCts.Token.Register(() => _frameCompletionSource?.TrySetResult(null));
 
@@ -174,10 +189,14 @@ namespace OcrApp.Services
 
     private void OnFrameArrived(Direct3D11CaptureFramePool sender, object args)
     {
-      if (_frameCompletionSource != null)
+      var completionSource = _frameCompletionSource;
+      if (completionSource != null)
       {
         var frame = sender.TryGetNextFrame();
-        _frameCompletionSource.SetResult(frame);
+        if (!completionSource.TrySetResult(frame))
+        {
+          frame?.Dispose();
+        }
         _frameCompletionSource = null;
       }
       else
@@ -190,6 +209,33 @@ namespace OcrApp.Services
       }
     }
 
+    private async Task<bool> TryRecoverCaptureSessionAsync(CancellationToken cancellationToken)
+    {
+      if (_captureItem == null)
+      {
+        return false;
+      }
+
+      await _reinitializeLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+      try
+      {
+        if (_captureItem == null)
+        {
+          return false;
+        }
+
+        return await InitializeAsync(_captureItem).ConfigureAwait(false);
+      }
+      catch
+      {
+        return false;
+      }
+      finally
+      {
+        _reinitializeLock.Release();
+      }
+    }
+
     private void OnCaptureFailed()
     {
       CaptureFailed?.Invoke(this, EventArgs.Empty);
@@ -197,11 +243,22 @@ namespace OcrApp.Services
 
     public void Dispose()
     {
+      if (_disposed)
+      {
+        return;
+      }
+
+      if (_framePool != null)
+      {
+        _framePool.FrameArrived -= OnFrameArrived;
+      }
       _captureSession?.Dispose();
       _framePool?.Dispose();
       _frameCompletionSource = null;
       _d3dDevice = null;
       _initialized = false;
+      _reinitializeLock.Dispose();
+      _disposed = true;
     }
 
     public ValueTask DisposeAsync()
