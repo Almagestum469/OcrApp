@@ -20,7 +20,7 @@ namespace OcrApp
 
         protected override void OnLaunched(LaunchActivatedEventArgs args)
         {
-            _window = new MainWindow();
+            _window = new TranslationOverlay();
             CurrentWindow = _window;
             _window.Activate();
         }

@@ -7,7 +7,7 @@
     xmlns:local="using:OcrApp"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d">
-    <Grid Padding="0" Background="Transparent">
+    <Grid Background="Transparent" Padding="0,0,0,0">
         <StackPanel Margin="8" Spacing="10">
             <!--  控制按钮  -->
             <StackPanel
@@ -35,12 +35,52 @@
                     FontSize="12"
                     Foreground="White"
                     Text="" />
+
+                            
+                <Button
+                    FontSize="12"
+                    x:Name="SelectCaptureItemButton"
+                    Click="SelectCaptureItemButton_Click"
+                    ToolTipService.ToolTip="选择捕获窗口">
+                    <FontIcon FontSize="14" FontFamily="Segoe Fluent Icons" Glyph="&#xF7EE;" />
+                </Button>
+                <Button
+                    FontSize="12"
+                    x:Name="SelectRegionButton"
+                    Click="SelectRegionButton_Click"
+                    IsEnabled="False"
+                    ToolTipService.ToolTip="选择识别区域">
+                    <FontIcon FontSize="14" FontFamily="Segoe Fluent Icons" Glyph="&#xE7A8;" />
+                </Button>
+                <Button
+                    FontSize="12"
+                    x:Name="RecognizeButton"
+                   
+                    x:FieldModifier="internal"
+                    Click="RecognizeButton_Click"
+                    IsEnabled="False"
+                    ToolTipService.ToolTip="执行识别(F12)">
+                    <FontIcon FontSize="14" FontFamily="Segoe Fluent Icons" Glyph="&#xE768;" />
+                </Button>
+                <Button
+                    x:Name="AutoModeButton"
+                    Padding="12,4"
+                    MinWidth="80"
+                    FontSize="12"
+                    Content="AUTO OFF"
+                    Background="#40FFFFFF"
+                    BorderBrush="#80FFFFFF"
+                    Foreground="White"
+                    Click="AutoModeButton_Click"
+                    IsEnabled="False"
+                    ToolTipService.ToolTip="自动模式" />
+            
             </StackPanel>
             <!--  只显示翻译结果，不显示原文  -->
             <TextBlock
                 x:Name="TranslationTextBlock"
                 Margin="0,6,0,0"
-                FontSize="14"
+                FontSize="18"
                 FontWeight="Normal"
                 Foreground="#FFD700"
                 Text="翻译结果将在这里显示..."
